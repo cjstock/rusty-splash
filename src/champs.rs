@@ -135,7 +135,6 @@ fn load_champs(champs: String) -> HashMap<String, Champion> {
                 .replace('\"', "")
         })
         .collect();
-    println!("{:?}", champs.len());
     let mut champ_map: HashMap<String, Champion> = HashMap::new();
     let (tx, rx) = mpsc::channel();
     for champ in champs {
