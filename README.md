@@ -1,0 +1,3 @@
+WIP...
+
+A program to stitch League of Legends splash arts together into a wallpaper
