@@ -1,3 +1,4 @@
+use core::fmt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::HashMap, error::Error, fs, path::PathBuf, sync::mpsc, thread, u32};
@@ -41,6 +42,15 @@ impl Default for ChampionSkins {
     }
 }
 
+#[derive(Debug, Clone)]
+struct VersionOutOfDate;
+
+impl fmt::Display for VersionOutOfDate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "cache is out of date")
+    }
+}
+
 impl ChampionSkins {
     pub fn skins_for(&self, champ_name: &str) -> Vec<(u32, String)> {
         let res = &self
@@ -65,18 +75,31 @@ impl ChampionSkins {
         });
     }
 
-    fn load_cache(&mut self) -> Result<(), Box<dyn Error>> {
+    fn load_cache(&self) -> Result<ChampionSkins, Box<dyn Error>> {
         let cache: String = fs::read_to_string(&self.cache_file_path)?.parse()?;
-        let data = serde_json::from_str(&cache.to_owned())?;
-        *self = data;
-        Ok(())
+        let data: ChampionSkins = serde_json::from_str(&cache.to_owned())?;
+        Ok(data)
+    }
+
+    fn test_cache(&mut self) -> Result<(), VersionOutOfDate> {
+        let data = self.load_cache().unwrap_or(ChampionSkins {
+            version: String::from(""),
+            ..Default::default()
+        });
+        match data.version == self.version {
+            true => {
+                *self = data;
+                Ok(())
+            }
+            false => Err(VersionOutOfDate),
+        }
     }
 
     pub fn load() -> ChampionSkins {
         let mut data = ChampionSkins {
             ..Default::default()
         };
-        match data.load_cache() {
+        match data.test_cache() {
             Ok(_) => data,
             Err(_) => {
                 let champs = fetch_champs()
