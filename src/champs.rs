@@ -1,6 +1,9 @@
+use rayon::iter::ParallelIterator;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{collections::HashMap, error::Error, fs, path::PathBuf, sync::mpsc, thread, u32};
+use std::{
+    collections::HashMap, error::Error, f32::NAN, fs, path::PathBuf, sync::mpsc, thread, u32,
+};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Cache {
@@ -120,6 +123,21 @@ impl Splashes {
             .map(|skin| (skin.num, skin.name.to_string()))
             .collect::<Vec<(u32, String)>>();
         res.to_vec()
+    }
+
+    pub fn skin_line(&self, name: &str) -> Vec<String> {
+        self.champions
+            .iter()
+            .flat_map(|champ| {
+                champ
+                    .1
+                    .skins
+                    .iter()
+                    .map(|skin| skin.name.to_string())
+                    .collect::<Vec<String>>()
+            })
+            .filter(|skin_name| skin_name.contains(name))
+            .collect::<Vec<String>>()
     }
 
     pub fn new() -> Splashes {

@@ -1,13 +1,17 @@
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use rust_splash::champs::Splashes;
 
 #[derive(Parser, Debug)]
 #[command(author = "Corey")]
 struct Cli {
-    #[arg(short, long)]
-    champion: String,
-    #[arg(short, long, default_value_t = 0)]
-    skin_number: usize,
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand, Debug)]
+enum Commands {
+    Champion { name: Option<String> },
+    SkinLine { name: Option<String> },
 }
 
 fn main() {
@@ -15,6 +19,16 @@ fn main() {
     data.save_data();
     let args = Cli::parse();
 
-    let selected = data.splashes_for_champ(&args.champion);
-    println!("{:?}", selected)
+    match &args.command {
+        Commands::Champion { name } => {
+            if let Some(name) = name {
+                println!("{:?}", data.splashes_for_champ(name))
+            }
+        }
+        Commands::SkinLine { name } => {
+            if let Some(skin_line) = name {
+                println!("{:?}", data.skin_line(skin_line))
+            }
+        }
+    }
 }
