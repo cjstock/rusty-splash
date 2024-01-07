@@ -1,4 +1,3 @@
-use core::fmt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::HashMap, error::Error, fs, path::PathBuf, sync::mpsc, thread, u32};
@@ -7,7 +6,7 @@ use std::{collections::HashMap, error::Error, fs, path::PathBuf, sync::mpsc, thr
 pub struct Cache {
     path: PathBuf,
     data_file: PathBuf,
-    version_file: PathBuf,
+    patch_file: PathBuf,
 }
 
 impl Default for Cache {
@@ -24,9 +23,9 @@ impl Default for Cache {
                 path.push("cache.json");
                 path
             },
-            version_file: {
+            patch_file: {
                 let mut path = file_path.clone();
-                path.push("version.json");
+                path.push("patch.json");
                 path
             },
         }
@@ -34,11 +33,11 @@ impl Default for Cache {
 }
 
 impl Cache {
-    pub fn save_version(&self, version: &str) {
+    pub fn save_patch_version(&self, version: &str) {
         let version = serde_json::to_string(version)
             .unwrap_or_else(|error| panic!("Couldn't serialize data: {error}"));
-        fs::write(self.version_file.clone(), version).unwrap_or_else(|error| {
-            panic!("Couldn't write version to {:?}: {error}", self.version_file)
+        fs::write(self.patch_file.clone(), version).unwrap_or_else(|error| {
+            panic!("Couldn't write version to {:?}: {error}", self.patch_file)
         });
     }
 
@@ -50,8 +49,8 @@ impl Cache {
         });
     }
 
-    fn get_version(&mut self) -> Result<String, Box<dyn Error>> {
-        let cached_version = fs::read_to_string(&self.version_file)?;
+    fn get_patch_version(&mut self) -> Result<String, Box<dyn Error>> {
+        let cached_version = fs::read_to_string(&self.patch_file)?;
         let mut version: String = cached_version.parse()?;
         version = version.replace('\"', "");
         Ok(version)
@@ -110,15 +109,6 @@ pub struct Splashes {
     patch: String,
 }
 
-#[derive(Debug, Clone)]
-struct VersionOutOfDate;
-
-impl fmt::Display for VersionOutOfDate {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "cache is out of date")
-    }
-}
-
 impl Splashes {
     pub fn splashes_for_champ(&self, name: &str) -> Vec<(u32, String)> {
         let res = &self
@@ -134,34 +124,55 @@ impl Splashes {
 
     pub fn new() -> Splashes {
         let mut splashes = Splashes::default();
-        let version = splashes.cache.get_version().unwrap_or_else(|_| {
-            let (tx, rx) = mpsc::channel();
-            thread::spawn(move || {
-                let v = get_latest_version();
-                let _ = tx.send(v);
-            });
-            rx.recv().expect("Problem getting latest version").unwrap()
-        });
-        splashes.patch = version.to_string();
-        splashes.cache.save_version(&version);
+        let latest_version = get_latest_version();
+        if let Ok(cached_patch) = splashes.cache.get_patch_version() {
+            if latest_version != cached_patch {
+                println!("Found a newer version: {latest_version}");
+                println!("Would you like to update?");
+                let mut input = String::default();
+                let _ = std::io::stdin().read_line(&mut input);
+                match input.to_lowercase().as_ref() {
+                    "y" | "yes" => splashes.update(&latest_version),
+                    _ => (),
+                }
+            }
+        } else {
+            splashes.update(&latest_version);
+        }
         splashes
     }
 
     pub fn load(&mut self) {
         if let Ok(splashes) = self.cache.get_data() {
-            println!("Found cached data...");
             self.champions = splashes.champions;
         } else {
-            println!("Fetching champions...");
-            self.champions = load_champs(&self.patch);
+            self.champions = map_champs(&self.patch);
         }
     }
 
     pub fn save_data(&self) {
         self.cache.save_data(self);
     }
+
+    pub fn update(&mut self, to_patch: &str) {
+        self.patch = to_patch.to_string();
+        self.cache.save_patch_version(to_patch);
+        let new_data = map_champs(to_patch);
+        self.champions = new_data;
+        self.cache.save_data(self);
+    }
 }
-fn fetch_champs(patch: &str) -> Result<String, reqwest::Error> {
+
+fn get_latest_version() -> String {
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        let v = fetch_latest_version();
+        let _ = tx.send(v);
+    });
+    rx.recv().expect("Problem getting latest version").unwrap()
+}
+
+fn request_champs(patch: &str) -> Result<String, reqwest::Error> {
     let res = reqwest::blocking::get(format!(
         "https://ddragon.leagueoflegends.com/cdn/{}/data/en_US/champion.json",
         patch
@@ -170,8 +181,8 @@ fn fetch_champs(patch: &str) -> Result<String, reqwest::Error> {
     let result = res.text()?;
     Ok(result)
 }
-fn load_champs(patch: &str) -> HashMap<String, Champion> {
-    let champs = fetch_champs(patch).unwrap();
+fn map_champs(patch: &str) -> HashMap<String, Champion> {
+    let champs = request_champs(patch).unwrap();
     let root: Value = serde_json::from_str(&champs)
         .unwrap_or_else(|error| panic!("Couldn't parse champions json: {error}"));
     let champs = root
@@ -204,7 +215,6 @@ fn load_champs(patch: &str) -> HashMap<String, Champion> {
     for received in rx {
         champ_map.insert(received.0.to_string(), received.1);
     }
-    println!("Finished");
     champ_map
 }
 fn populate_champ(patch: String, champ_name: &str) -> Champion {
@@ -225,7 +235,7 @@ fn populate_champ(patch: String, champ_name: &str) -> Champion {
     champion
 }
 
-fn get_latest_version() -> Option<String> {
+fn fetch_latest_version() -> Option<String> {
     let versions = fetch_versions().unwrap_or_else(|error| {
         panic!("Couldn't fetch versions: {error}");
     });
