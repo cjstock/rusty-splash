@@ -1,5 +1,5 @@
 use clap::Parser;
-use rust_splash::champs::ChampionSkins;
+use rust_splash::champs::Splashes;
 
 #[derive(Parser, Debug)]
 #[command(author = "Corey")]
@@ -11,9 +11,11 @@ struct Cli {
 }
 
 fn main() {
-    let data = ChampionSkins::load();
+    let mut data = Splashes::new();
+    data.load();
+    data.save_data();
     let args = Cli::parse();
 
-    let selected = data.skins_for(&args.champion);
+    let selected = data.splashes_for_champ(&args.champion);
     println!("{:?}", selected)
 }
