@@ -11,8 +11,7 @@ struct Cli {
 }
 
 fn main() {
-    let mut data = Splashes::new();
-    data.load();
+    let data = Splashes::new();
     data.save_data();
     let args = Cli::parse();
 

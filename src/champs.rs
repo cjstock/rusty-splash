@@ -136,6 +136,7 @@ impl Splashes {
                     _ => (),
                 }
             }
+            splashes.load();
         } else {
             splashes.update(&latest_version);
         }
@@ -145,8 +146,6 @@ impl Splashes {
     pub fn load(&mut self) {
         if let Ok(splashes) = self.cache.get_data() {
             self.champions = splashes.champions;
-        } else {
-            self.champions = map_champs(&self.patch);
         }
     }
 
