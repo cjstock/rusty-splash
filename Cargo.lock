@@ -1042,19 +1042,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rust-splash"
-version = "0.1.0"
-dependencies = [
- "clap",
- "dirs",
- "image",
- "open",
- "reqwest",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "rustc-demangle"
 version = "0.1.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1071,6 +1058,19 @@ dependencies = [
  "libc",
  "linux-raw-sys",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "rusty-splash"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "dirs",
+ "image",
+ "open",
+ "reqwest",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

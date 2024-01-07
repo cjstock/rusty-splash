@@ -1,10 +1,10 @@
 use std::process::exit;
 
 use clap::{Parser, Subcommand};
-use rust_splash::champs::{self, Splashes};
+use rusty_splash::champs::{self, Splashes};
 
 #[derive(Parser, Debug)]
-#[command(author = "Corey Stock", about = "Explore LoL skins and splash arts")]
+#[command(author = "Corey Stock", about)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -12,11 +12,11 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    ///Lists the skins for a champion
+    ///Lists the splashes for a champion
     Champion { query: Option<String> },
-    ///Search for skins by name
+    ///Search for splashes by name
     Splashes {
-        ///Preview skins in browser
+        ///Preview splashes in browser - be carful or you might open a lot of browser tabs >:^P
         #[arg(short, long, default_value_t = false)]
         preview: bool,
         query: Option<String>,
