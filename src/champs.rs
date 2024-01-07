@@ -1,9 +1,6 @@
-use rayon::iter::ParallelIterator;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{
-    collections::HashMap, error::Error, f32::NAN, fs, path::PathBuf, sync::mpsc, thread, u32,
-};
+use std::{collections::HashMap, error::Error, fs, io, path::PathBuf, sync::mpsc, thread, u32};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Cache {
@@ -102,7 +99,7 @@ pub struct Skin {
     id: String,
     pub name: String,
     chromas: bool,
-    num: u32,
+    pub num: u32,
 }
 
 #[derive(Default, Serialize, Deserialize, Debug)]
@@ -125,19 +122,21 @@ impl Splashes {
         res.to_vec()
     }
 
-    pub fn skin_line(&self, name: &str) -> Vec<String> {
+    pub fn skin(&self, name: &str) -> Option<(String, &Skin)> {
+        for (champ_name, champ) in self.champions.iter() {
+            if let Some(skin) = champ.skins.iter().find(|skin| skin.name == name) {
+                return Some((champ_name.to_string(), skin));
+            }
+        }
+        None
+    }
+
+    pub fn skin_line(&self, name: &str) -> Vec<&Skin> {
         self.champions
             .iter()
-            .flat_map(|champ| {
-                champ
-                    .1
-                    .skins
-                    .iter()
-                    .map(|skin| skin.name.to_string())
-                    .collect::<Vec<String>>()
-            })
-            .filter(|skin_name| skin_name.contains(name))
-            .collect::<Vec<String>>()
+            .flat_map(|champ| &champ.1.skins)
+            .filter(|skin| skin.name.to_lowercase().contains(&name.to_lowercase()))
+            .collect::<Vec<&Skin>>()
     }
 
     pub fn new() -> Splashes {
@@ -187,6 +186,15 @@ fn get_latest_version() -> String {
         let _ = tx.send(v);
     });
     rx.recv().expect("Problem getting latest version").unwrap()
+}
+
+pub fn preview(champ_name: &str, skin_num: u32) -> Result<(), io::Error> {
+    let url = format!(
+        "https://ddragon.leagueoflegends.com/cdn/img/champion/splash/{}_{}.jpg",
+        champ_name, skin_num
+    );
+    open::that(url)?;
+    Ok(())
 }
 
 fn request_champs(patch: &str) -> Result<String, reqwest::Error> {
@@ -245,8 +253,14 @@ fn populate_champ(patch: String, champ_name: &str) -> Champion {
         .and_then(|val| val.get(champ_name))
         .and_then(|val| val.get("skins"))
         .unwrap();
-    let skin_data: Vec<Skin> = serde_json::from_str(&skins.to_string())
+    let mut skin_data: Vec<Skin> = serde_json::from_str(&skins.to_string())
         .unwrap_or_else(|error| panic!("Failed to deserialize skins for {champ_name}: {error}"));
+
+    let default_splash = skin_data
+        .iter_mut()
+        .find(|skin| skin.name == "default")
+        .unwrap();
+    default_splash.name = champ_name.to_string();
 
     champion.skins = skin_data;
     champion
@@ -271,4 +285,10 @@ fn fetch_versions() -> Result<String, reqwest::Error> {
     let res = reqwest::blocking::get(url)?;
     let result = res.text()?;
     Ok(result)
+}
+
+#[cfg(test)]
+#[test]
+fn open_preview() {
+    let _ = preview("Aatrox", 0);
 }
