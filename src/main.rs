@@ -60,16 +60,31 @@ fn main() {
 
                             let mut input = String::default();
                             let _ = std::io::stdin().read_line(&mut input);
-                            let selected_skins =
-                                input.trim().split(' ').map(|val| val.parse::<usize>());
 
-                            for selected_skin in selected_skins.flatten() {
-                                let selected_name = &skins[selected_skin].name;
-                                if let Some((name, skin_data)) = data.skin(selected_name) {
-                                    let _ = champs::preview(&name, skin_data.num);
+                            match input.trim() {
+                                "" => {
+                                    for skin in skins.iter() {
+                                        if let Some((champ, skin_data)) = data.skin(&skin.name) {
+                                            let _ = champs::preview(&champ, skin_data.num);
+                                        }
+                                    }
+                                }
+                                _ => {
+                                    let selected_skins =
+                                        input.trim().split(' ').map(|val| val.parse::<usize>());
+                                    for selected_skin in selected_skins.flatten() {
+                                        let selected_name = &skins[selected_skin].name;
+                                        if let Some((champ, skin_data)) = data.skin(selected_name) {
+                                            let _ = champs::preview(&champ, skin_data.num);
+                                        }
+                                    }
                                 }
                             }
                         }
+                    }
+                } else {
+                    for (index, skin) in skins.iter().enumerate() {
+                        println!("  {index}: {:?}", skin.name);
                     }
                 }
             }

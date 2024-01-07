@@ -65,8 +65,8 @@ impl Cache {
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct Champion {
-    name: String,
-    skins: Vec<Skin>,
+    pub name: String,
+    pub skins: Vec<Skin>,
 }
 
 impl Champion {
@@ -96,17 +96,17 @@ impl Champion {
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct Skin {
-    id: String,
+    pub id: String,
     pub name: String,
-    chromas: bool,
+    pub chromas: bool,
     pub num: u32,
 }
 
 #[derive(Default, Serialize, Deserialize, Debug)]
 pub struct Splashes {
-    champions: HashMap<String, Champion>,
+    pub champions: HashMap<String, Champion>,
     pub cache: Cache,
-    patch: String,
+    pub patch: String,
 }
 
 impl Splashes {
@@ -242,6 +242,7 @@ fn map_champs(patch: &str) -> HashMap<String, Champion> {
     }
     champ_map
 }
+
 fn populate_champ(patch: String, champ_name: &str) -> Champion {
     let mut champion = Champion::new(champ_name);
     let result = champion.fetch_champ(&patch).unwrap();
