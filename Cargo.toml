@@ -2,7 +2,7 @@
 name = "rusty-splash"
 version = "0.1.0"
 edition = "2021"
-description = "Uses Riot's DataDragon API to query a view champion splash arts"
+description = "Preview and download official League of Legends champion splash art via Riot's DataDragon web api"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

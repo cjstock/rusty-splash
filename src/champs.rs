@@ -1,3 +1,4 @@
+use image::EncodableLayout;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::HashMap, error::Error, fs, io, path::PathBuf, sync::mpsc, thread, u32};
@@ -67,6 +68,7 @@ impl Cache {
 pub struct Champion {
     pub name: String,
     pub skins: Vec<Skin>,
+    pub tags: Vec<String>,
 }
 
 impl Champion {
@@ -74,6 +76,7 @@ impl Champion {
         Self {
             name: name.to_string(),
             skins: vec![],
+            tags: vec![],
         }
     }
 
@@ -100,6 +103,7 @@ pub struct Skin {
     pub name: String,
     pub chromas: bool,
     pub num: u32,
+    pub champ: Option<String>,
 }
 
 #[derive(Default, Serialize, Deserialize, Debug)]
@@ -107,6 +111,7 @@ pub struct Splashes {
     pub champions: HashMap<String, Champion>,
     pub cache: Cache,
     pub patch: String,
+    pub save_dir: PathBuf,
 }
 
 impl Splashes {
@@ -122,13 +127,42 @@ impl Splashes {
         res.to_vec()
     }
 
-    pub fn skin(&self, name: &str) -> Option<(String, &Skin)> {
-        for (champ_name, champ) in self.champions.iter() {
+    pub fn skin(&self, name: &str) -> Option<&Skin> {
+        for (_, champ) in self.champions.iter() {
             if let Some(skin) = champ.skins.iter().find(|skin| skin.name == name) {
-                return Some((champ_name.to_string(), skin));
+                return Some(skin);
             }
         }
         None
+    }
+
+    pub fn download(&self, skin: &Skin) -> Result<(), Box<dyn Error>> {
+        let url = format!(
+            "https://ddragon.leagueoflegends.com/cdn/img/champion/splash/{}_{}.jpg",
+            skin.champ.clone().unwrap(),
+            skin.num
+        );
+        let response = reqwest::blocking::get(url)?;
+        let image_data = response.bytes()?;
+        let save_path =
+            self.save_dir
+                .join(format!("{}_{}.jpg", skin.champ.clone().unwrap(), skin.num));
+        io::copy(
+            &mut image_data.as_bytes(),
+            &mut fs::File::create(save_path)?,
+        )?;
+        Ok(())
+    }
+
+    pub fn all_tags(&self) -> Vec<String> {
+        let mut all_tags: Vec<String> = self
+            .champions
+            .iter()
+            .flat_map(|champion| champion.1.tags.clone())
+            .collect();
+        all_tags.sort_unstable();
+        all_tags.dedup();
+        all_tags
     }
 
     pub fn skin_line(&self, name: &str) -> Vec<&Skin> {
@@ -155,8 +189,11 @@ impl Splashes {
             }
             splashes.load();
         } else {
+            println!("Getting data for patch: {latest_version}");
             splashes.update(&latest_version);
         }
+        splashes.save_dir = splashes.cache.path.join("splashes");
+        let _ = fs::create_dir_all(&splashes.save_dir);
         splashes
     }
 
@@ -178,7 +215,6 @@ impl Splashes {
         self.cache.save_data(self);
     }
 }
-
 fn get_latest_version() -> String {
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
@@ -188,10 +224,11 @@ fn get_latest_version() -> String {
     rx.recv().expect("Problem getting latest version").unwrap()
 }
 
-pub fn preview(champ_name: &str, skin_num: u32) -> Result<(), io::Error> {
+pub fn preview(skin: &Skin) -> Result<(), io::Error> {
     let url = format!(
         "https://ddragon.leagueoflegends.com/cdn/img/champion/splash/{}_{}.jpg",
-        champ_name, skin_num
+        skin.champ.clone().unwrap(),
+        skin.num
     );
     open::that(url)?;
     Ok(())
@@ -249,6 +286,7 @@ fn populate_champ(patch: String, champ_name: &str) -> Champion {
     let root: Value = serde_json::from_str(&result).unwrap_or_else(|error| {
         panic!("Couldn't parse {champ_name}: {error}");
     });
+
     let skins = root
         .get("data")
         .and_then(|val| val.get(champ_name))
@@ -256,14 +294,25 @@ fn populate_champ(patch: String, champ_name: &str) -> Champion {
         .unwrap();
     let mut skin_data: Vec<Skin> = serde_json::from_str(&skins.to_string())
         .unwrap_or_else(|error| panic!("Failed to deserialize skins for {champ_name}: {error}"));
-
+    for skin in skin_data.iter_mut() {
+        skin.champ = Some(champ_name.to_string());
+    }
     let default_splash = skin_data
         .iter_mut()
         .find(|skin| skin.name == "default")
         .unwrap();
     default_splash.name = champ_name.to_string();
 
+    let tags = root
+        .get("data")
+        .and_then(|val| val.get(champ_name))
+        .and_then(|val| val.get("tags"))
+        .unwrap();
+    let tag_data: Vec<String> = serde_json::from_str(&tags.to_string())
+        .unwrap_or_else(|error| panic!("Failed to deserialize tags for {champ_name}: {error}"));
+
     champion.skins = skin_data;
+    champion.tags = tag_data;
     champion
 }
 
@@ -291,5 +340,24 @@ fn fetch_versions() -> Result<String, reqwest::Error> {
 #[cfg(test)]
 #[test]
 fn open_preview() {
-    let _ = preview("Aatrox", 0);
+    let data = Splashes::new();
+    let _ = preview(data.skin("Aatrox").unwrap());
+}
+
+#[test]
+fn champ_data() {
+    let data = Splashes::new();
+    let aatrox = data.champions.get("Aatrox").unwrap();
+    let data = serde_json::to_string_pretty(&aatrox).unwrap();
+    let _ = fs::write("aatrox_object.json", data);
+}
+
+#[test]
+fn champ_string() {
+    let latest_patch = get_latest_version();
+    let data = Champion::new("Aatrox");
+    let data = data.fetch_champ(&latest_patch).unwrap();
+    let data: Value = serde_json::from_str(&data).unwrap();
+    let champ = serde_json::to_string_pretty(&data).unwrap();
+    let _ = fs::write("aatrox.json", champ);
 }

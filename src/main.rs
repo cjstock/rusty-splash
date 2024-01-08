@@ -1,5 +1,3 @@
-use std::process::exit;
-
 use clap::{Parser, Subcommand};
 use rusty_splash::champs::{self, Splashes};
 
@@ -14,18 +12,20 @@ struct Cli {
 enum Commands {
     ///Lists the splashes for a champion
     Champion { query: Option<String> },
-    ///Search for splashes by name
-    Splashes {
+    ///Preview or Download champion splash art.
+    Get {
         ///Preview splashes in browser - be carful or you might open a lot of browser tabs >:^P
         #[arg(short, long, default_value_t = false)]
         preview: bool,
-        query: Option<String>,
+        ///Download splashes to $HOME/rusty-splash/splashes
+        #[arg(short, long, default_value_t = false)]
+        download: bool,
+        query: String,
     },
 }
 
 fn main() {
     let data = Splashes::new();
-    data.save_data();
     let args = Cli::parse();
 
     match &args.command {
@@ -36,56 +36,69 @@ fn main() {
                 }
             }
         }
-        Commands::Splashes {
-            query: name,
+        Commands::Get {
+            query,
             preview,
+            download,
         } => {
-            if let Some(query) = name {
-                let skins = data.skin_line(query);
-                if *preview {
-                    match skins.len() {
-                        0 => {
-                            println!("No results found! Try again...");
+            let skins = data.skin_line(query);
+            if *preview || *download {
+                match skins.len() {
+                    0 => {
+                        println!("No results found! Try again...");
+                    }
+                    1 => {
+                        let skin_data = data.skin(&skins[0].name).unwrap();
+                        if *preview {
+                            let _ = champs::preview(skin_data);
                         }
-                        1 => {
-                            let (name, skin_data) = data.skin(&skins[0].name).unwrap();
-                            let _ = champs::preview(&name, skin_data.num);
-                            exit(0);
+                        if *download {
+                            let _ = data.download(skin_data);
                         }
-                        _ => {
-                            println!("Select skins from the list to preview using their id's separated by spaces (Ex: 1 2 4):");
-                            for (index, skin) in skins.iter().enumerate() {
-                                println!("  {index}: {:?}", skin.name);
-                            }
+                    }
+                    _ => {
+                        println!("Select skins from the list to preview using their id's separated by spaces (Ex: 1 2 4):");
+                        for (index, skin) in skins.iter().enumerate() {
+                            println!("  {index}: {:?}", skin.name);
+                        }
 
-                            let mut input = String::default();
-                            let _ = std::io::stdin().read_line(&mut input);
+                        let mut input = String::default();
+                        let _ = std::io::stdin().read_line(&mut input);
 
-                            match input.trim() {
-                                "" => {
-                                    for skin in skins.iter() {
-                                        if let Some((champ, skin_data)) = data.skin(&skin.name) {
-                                            let _ = champs::preview(&champ, skin_data.num);
+                        match input.trim() {
+                            "" => {
+                                for skin in skins.iter() {
+                                    if let Some(skin_data) = data.skin(&skin.name) {
+                                        if *preview {
+                                            let _ = champs::preview(skin_data);
+                                        }
+                                        if *download {
+                                            let _ = data.download(skin_data);
                                         }
                                     }
                                 }
-                                _ => {
-                                    let selected_skins =
-                                        input.trim().split(' ').map(|val| val.parse::<usize>());
-                                    for selected_skin in selected_skins.flatten() {
-                                        let selected_name = &skins[selected_skin].name;
-                                        if let Some((champ, skin_data)) = data.skin(selected_name) {
-                                            let _ = champs::preview(&champ, skin_data.num);
+                            }
+                            _ => {
+                                let selected_skins =
+                                    input.trim().split(' ').map(|val| val.parse::<usize>());
+                                for selected_skin in selected_skins.flatten() {
+                                    let selected_name = &skins[selected_skin].name;
+                                    if let Some(skin_data) = data.skin(selected_name) {
+                                        if *preview {
+                                            let _ = champs::preview(skin_data);
+                                        }
+                                        if *download {
+                                            let _ = data.download(skin_data);
                                         }
                                     }
                                 }
                             }
                         }
                     }
-                } else {
-                    for (index, skin) in skins.iter().enumerate() {
-                        println!("  {index}: {:?}", skin.name);
-                    }
+                }
+            } else {
+                for (index, skin) in skins.iter().enumerate() {
+                    println!("  {index}: {:?}", skin.name);
                 }
             }
         }
