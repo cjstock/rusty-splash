@@ -1,68 +1,12 @@
-use image::EncodableLayout;
+pub(crate) use image::EncodableLayout;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::HashMap, error::Error, fs, io, path::PathBuf, sync::mpsc, thread, u32};
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Cache {
-    path: PathBuf,
-    data_file: PathBuf,
-    patch_file: PathBuf,
-}
-
-impl Default for Cache {
-    fn default() -> Self {
-        let home = dirs::home_dir().unwrap_or_else(|| panic!("Couldn't get home dir"));
-        let file_path = [home.to_str().unwrap(), "rusty-splash"]
-            .iter()
-            .collect::<PathBuf>();
-        fs::create_dir_all(&file_path).unwrap();
-        Self {
-            path: file_path.clone(),
-            data_file: {
-                let mut path = file_path.clone();
-                path.push("cache.json");
-                path
-            },
-            patch_file: {
-                let mut path = file_path.clone();
-                path.push("patch.json");
-                path
-            },
-        }
-    }
-}
-
-impl Cache {
-    pub fn save_patch_version(&self, version: &str) {
-        let version = serde_json::to_string(version)
-            .unwrap_or_else(|error| panic!("Couldn't serialize data: {error}"));
-        fs::write(self.patch_file.clone(), version).unwrap_or_else(|error| {
-            panic!("Couldn't write version to {:?}: {error}", self.patch_file)
-        });
-    }
-
-    pub fn save_data(&self, data: &Splashes) {
-        let data = serde_json::to_string(&data)
-            .unwrap_or_else(|error| panic!("Couldn't serialize data: {error}"));
-        fs::write(self.data_file.clone(), data).unwrap_or_else(|error| {
-            panic!("Couldn't write cache to {:?}: {error}", self.data_file)
-        });
-    }
-
-    fn get_patch_version(&mut self) -> Result<String, Box<dyn Error>> {
-        let cached_version = fs::read_to_string(&self.patch_file)?;
-        let mut version: String = cached_version.parse()?;
-        version = version.replace('\"', "");
-        Ok(version)
-    }
-
-    fn get_data(&self) -> Result<Splashes, Box<dyn Error>> {
-        let cache: String = fs::read_to_string(&self.data_file)?.parse()?;
-        let data: Splashes = serde_json::from_str(&cache.to_owned())?;
-        Ok(data)
-    }
-}
+use crate::{
+    cache::Cache,
+    datadragon::{get_latest_version, request_champs},
+};
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct Champion {
@@ -165,11 +109,11 @@ impl Splashes {
         all_tags
     }
 
-    pub fn skin_line(&self, name: &str) -> Vec<&Skin> {
+    pub fn search_skins(&self, query: &str) -> Vec<&Skin> {
         self.champions
             .iter()
             .flat_map(|champ| &champ.1.skins)
-            .filter(|skin| skin.name.to_lowercase().contains(&name.to_lowercase()))
+            .filter(|skin| skin.name.to_lowercase().contains(&query.to_lowercase()))
             .collect::<Vec<&Skin>>()
     }
 
@@ -215,34 +159,7 @@ impl Splashes {
         self.cache.save_data(self);
     }
 }
-fn get_latest_version() -> String {
-    let (tx, rx) = mpsc::channel();
-    thread::spawn(move || {
-        let v = fetch_latest_version();
-        let _ = tx.send(v);
-    });
-    rx.recv().expect("Problem getting latest version").unwrap()
-}
 
-pub fn preview(skin: &Skin) -> Result<(), io::Error> {
-    let url = format!(
-        "https://ddragon.leagueoflegends.com/cdn/img/champion/splash/{}_{}.jpg",
-        skin.champ.clone().unwrap(),
-        skin.num
-    );
-    open::that(url)?;
-    Ok(())
-}
-
-fn request_champs(patch: &str) -> Result<String, reqwest::Error> {
-    let res = reqwest::blocking::get(format!(
-        "https://ddragon.leagueoflegends.com/cdn/{}/data/en_US/champion.json",
-        patch
-    ))?;
-
-    let result = res.text()?;
-    Ok(result)
-}
 fn map_champs(patch: &str) -> HashMap<String, Champion> {
     let champs = request_champs(patch).unwrap();
     let root: Value = serde_json::from_str(&champs)
@@ -314,27 +231,6 @@ fn populate_champ(patch: String, champ_name: &str) -> Champion {
     champion.skins = skin_data;
     champion.tags = tag_data;
     champion
-}
-
-fn fetch_latest_version() -> Option<String> {
-    let versions = fetch_versions().unwrap_or_else(|error| {
-        panic!("Couldn't fetch versions: {error}");
-    });
-    let versions: Vec<String> = serde_json::from_str(&versions).unwrap_or_else(|error| {
-        panic!("Invalid response: {error}");
-    });
-    let versions: Vec<String> = versions
-        .iter()
-        .map(|version| version.replace('\"', ""))
-        .collect();
-    versions.first().cloned()
-}
-
-fn fetch_versions() -> Result<String, reqwest::Error> {
-    let url = String::from("https://ddragon.leagueoflegends.com/api/versions.json");
-    let res = reqwest::blocking::get(url)?;
-    let result = res.text()?;
-    Ok(result)
 }
 
 #[cfg(test)]

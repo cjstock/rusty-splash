@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
-use rusty_splash::champs::{self, Splashes};
+use rusty_splash::datadragon::preview_splash;
+use rusty_splash::splashes::Splashes;
 
 #[derive(Parser, Debug)]
 #[command(author = "Corey Stock", about)]
@@ -41,7 +42,7 @@ fn main() {
             preview,
             download,
         } => {
-            let skins = data.skin_line(query);
+            let skins = data.search_skins(query);
             if *preview || *download {
                 match skins.len() {
                     0 => {
@@ -50,7 +51,7 @@ fn main() {
                     1 => {
                         let skin_data = data.skin(&skins[0].name).unwrap();
                         if *preview {
-                            let _ = champs::preview(skin_data);
+                            let _ = preview_splash(skin_data);
                         }
                         if *download {
                             let _ = data.download(skin_data);
@@ -70,7 +71,7 @@ fn main() {
                                 for skin in skins.iter() {
                                     if let Some(skin_data) = data.skin(&skin.name) {
                                         if *preview {
-                                            let _ = champs::preview(skin_data);
+                                            let _ = preview_splash(skin_data);
                                         }
                                         if *download {
                                             let _ = data.download(skin_data);
@@ -85,7 +86,7 @@ fn main() {
                                     let selected_name = &skins[selected_skin].name;
                                     if let Some(skin_data) = data.skin(selected_name) {
                                         if *preview {
-                                            let _ = champs::preview(skin_data);
+                                            let _ = preview_splash(skin_data);
                                         }
                                         if *download {
                                             let _ = data.download(skin_data);
