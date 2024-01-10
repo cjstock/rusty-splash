@@ -1,4 +1,4 @@
-pub(crate) use image::EncodableLayout;
+pub use image::EncodableLayout;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::HashMap, error::Error, fs, io, path::PathBuf, sync::mpsc, thread, u32};
@@ -126,7 +126,7 @@ impl Splashes {
                 println!("Would you like to update?");
                 let mut input = String::default();
                 let _ = std::io::stdin().read_line(&mut input);
-                match input.to_lowercase().as_ref() {
+                match input.to_lowercase().trim() {
                     "y" | "yes" => splashes.update(&latest_version),
                     _ => (),
                 }
@@ -236,8 +236,10 @@ fn populate_champ(patch: String, champ_name: &str) -> Champion {
 #[cfg(test)]
 #[test]
 fn open_preview() {
+    use crate::datadragon;
+
     let data = Splashes::new();
-    let _ = preview(data.skin("Aatrox").unwrap());
+    let _ = datadragon::preview_splash(data.skin("Aatrox").unwrap());
 }
 
 #[test]

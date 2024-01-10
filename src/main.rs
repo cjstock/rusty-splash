@@ -1,6 +1,9 @@
 use clap::{Parser, Subcommand};
 use rusty_splash::datadragon::preview_splash;
 use rusty_splash::splashes::Splashes;
+use rusty_splash::tiled_splash::monitors;
+use winit::event_loop::EventLoop;
+use winit::window::Window;
 
 #[derive(Parser, Debug)]
 #[command(author = "Corey Stock", about)]
@@ -28,6 +31,12 @@ enum Commands {
 fn main() {
     let data = Splashes::new();
     let args = Cli::parse();
+    let event_loop = EventLoop::new().unwrap();
+    let window = Window::new(&event_loop).unwrap();
+
+    let dims = monitors(&window);
+
+    println!("dimensions: {:?}", dims);
 
     match &args.command {
         Commands::Champion { query } => {
