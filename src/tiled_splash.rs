@@ -7,6 +7,19 @@ pub fn monitors(window: &Window) -> Vec<PhysicalSize<u32>> {
     monitors.into_iter().map(|monitor| monitor.size()).collect()
 }
 
+pub fn aspect_ratio(monitor_dims: &PhysicalSize<u32>) -> f32 {
+    monitor_dims.width as f32 / monitor_dims.height as f32
+}
+
+pub fn how_many_fit(img_path: &PathBuf, monitor_dims: &PhysicalSize<u32>, by_width: bool) -> f32 {
+    let image = image::open(img_path).unwrap();
+    if by_width {
+        monitor_dims.width as f32 / image.dimensions().0 as f32
+    } else {
+        monitor_dims.height as f32 / image.dimensions().1 as f32
+    }
+}
+
 pub fn merge_two(left_path: PathBuf, right_path: PathBuf) {
     let left_img = image::open(&left_path).unwrap();
     let right_img = image::open(right_path).unwrap();
