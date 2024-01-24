@@ -1,8 +1,7 @@
 use clap::{Parser, Subcommand};
-use image::GenericImageView;
 use rusty_splash::datadragon::preview_splash;
 use rusty_splash::splashes::Splashes;
-use rusty_splash::tiled_splash::{aspect_ratio, how_many_fit, monitors};
+use rusty_splash::tiled_splash::{build_tile, monitors};
 use winit::event_loop::EventLoop;
 use winit::window::Window;
 
@@ -29,52 +28,6 @@ enum Commands {
     },
 }
 
-#[derive(Debug)]
-struct TileParams {
-    dims: (u32, u32),
-    image_res: (u32, u32),
-    image_adjust: (u32, u32),
-}
-
-fn calculate_tile_y_bias(image_res: (u32, u32), container_res: (u32, u32), c: u32) -> TileParams {
-    let image_res = (image_res.0 as f32, image_res.1 as f32);
-    let container_res = (container_res.0 as f32, container_res.1 as f32);
-    let fit_y = container_res.1 / image_res.1;
-    let target_fit_y = fit_y.ceil() + (c as f32);
-    let new_image_y = container_res.1 / target_fit_y;
-    let image_ar = image_res.0 / image_res.1;
-    let new_image_x = image_ar * new_image_y;
-    let fit_x = container_res.0 / new_image_x;
-    let overfit = fit_x.ceil();
-    let overfit_error = fit_x.ceil() - fit_x;
-    let pixel_x_error = overfit_error * new_image_x;
-    let x_adjust = pixel_x_error / overfit;
-    TileParams {
-        dims: (overfit as u32, target_fit_y as u32),
-        image_res: (new_image_x.round() as u32, new_image_y.round() as u32),
-        image_adjust: (x_adjust.round() as u32, 0),
-    }
-}
-fn calculate_tile_x_bias(image_res: (u32, u32), container_res: (u32, u32), c: u32) -> TileParams {
-    let image_res = (image_res.0 as f32, image_res.1 as f32);
-    let container_res = (container_res.0 as f32, container_res.1 as f32);
-    let fit_x = container_res.0 / image_res.0;
-    let target_fit_x = fit_x.ceil() + (c as f32);
-    let new_image_x = container_res.0 / target_fit_x;
-    let image_ar = image_res.0 / image_res.1;
-    let new_image_y = new_image_x / image_ar;
-    let fit_y = container_res.1 / new_image_y;
-    let overfit = fit_y.ceil();
-    let overfit_error = fit_y.ceil() - fit_y;
-    let pixel_y_error = overfit_error * new_image_y;
-    let y_adjust = pixel_y_error / overfit;
-    TileParams {
-        dims: (target_fit_x.round() as u32, overfit.round() as u32),
-        image_res: (new_image_x.round() as u32, new_image_y.round() as u32),
-        image_adjust: (0, y_adjust.round() as u32),
-    }
-}
-
 fn main() {
     let data = Splashes::new();
     let args = Cli::parse();
@@ -82,23 +35,37 @@ fn main() {
     let window = Window::new(&event_loop).unwrap();
 
     let monitors = monitors(&window);
-    let mut draven_path = data.save_dir.clone();
-    draven_path.push("Draven_0.jpg");
-    let image = image::open(draven_path.clone()).unwrap();
+    let mut images = [
+        "Draven_1.jpg",
+        "Draven_2.jpg",
+        "Camille_32.jpg",
+        "Draven_2.jpg",
+        "Camille_32.jpg",
+        "Draven_2.jpg",
+        "Draven_0.jpg",
+        "Draven_1.jpg",
+        "Draven_2.jpg",
+        "Camille_32.jpg",
+        "Draven_2.jpg",
+        "Draven_0.jpg",
+        "Draven_2.jpg",
+        "Camille_32.jpg",
+        "Draven_2.jpg",
+        "Draven_0.jpg",
+        "Draven_1.jpg",
+        "Draven_2.jpg",
+        "Camille_32.jpg",
+    ];
+    let splashes = images
+        .iter_mut()
+        .map(|image_name| {
+            let mut draven_path = data.save_dir.clone();
+            draven_path.push(image_name);
+            draven_path
+        })
+        .collect();
 
-    let y = calculate_tile_y_bias(
-        image.dimensions(),
-        (monitors[0].width, monitors[0].height),
-        0,
-    );
-    let x = calculate_tile_x_bias(
-        image.dimensions(),
-        (monitors[0].width, monitors[0].height),
-        0,
-    );
-
-    println!("x: {:?}", x);
-    println!("y: {:?}", y);
+    build_tile(splashes, (monitors[0].width, monitors[0].height));
 
     match &args.command {
         Commands::Champion { query } => {
