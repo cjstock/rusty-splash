@@ -1,4 +1,5 @@
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
+use dialoguer::MultiSelect;
 use rusty_splash::datadragon::preview_splash;
 use rusty_splash::splashes::Splashes;
 use rusty_splash::tiled_splash::{build_tile, monitors};
@@ -14,130 +15,74 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    ///Lists the splashes for a champion
-    Champion { query: Option<String> },
-    ///Preview or Download champion splash art.
-    Get {
-        ///Preview splashes in browser - be carful or you might open a lot of browser tabs >:^P
-        #[arg(short, long, default_value_t = false)]
-        preview: bool,
-        ///Download splashes to $HOME/rusty-splash/splashes
-        #[arg(short, long, default_value_t = false)]
-        download: bool,
-        query: String,
-    },
+    Tile(TileArgs),
+}
+
+#[derive(Debug, Args)]
+#[command(args_conflicts_with_subcommands = true)]
+#[command(flatten_help = true)]
+struct TileArgs {
+    #[command(subcommand)]
+    command: Option<TileCommands>,
+}
+
+#[derive(Debug, Subcommand)]
+enum TileCommands {
+    Add { query: String },
+    Remove,
+    Build,
+    List,
 }
 
 fn main() {
-    let data = Splashes::new();
+    let mut data = Splashes::new();
     let args = Cli::parse();
-    let event_loop = EventLoop::new().unwrap();
-    let window = Window::new(&event_loop).unwrap();
-
-    let monitors = monitors(&window);
-    let mut images = [
-        "Draven_1.jpg",
-        "Draven_2.jpg",
-        "Camille_32.jpg",
-        "Draven_2.jpg",
-        "Camille_32.jpg",
-        "Draven_2.jpg",
-        "Draven_0.jpg",
-        "Draven_1.jpg",
-        "Draven_2.jpg",
-        "Camille_32.jpg",
-        "Draven_2.jpg",
-        "Draven_0.jpg",
-        "Draven_2.jpg",
-        "Camille_32.jpg",
-        "Draven_2.jpg",
-        "Draven_0.jpg",
-        "Draven_1.jpg",
-        "Draven_2.jpg",
-        "Camille_32.jpg",
-    ];
-    let splashes = images
-        .iter_mut()
-        .map(|image_name| {
-            let mut draven_path = data.save_dir.clone();
-            draven_path.push(image_name);
-            draven_path
-        })
-        .collect();
-
-    build_tile(splashes, (monitors[0].width, monitors[0].height));
 
     match &args.command {
-        Commands::Champion { query } => {
-            if let Some(name) = query {
-                for skin in data.splashes_for_champ(name) {
-                    println!("{:?}", skin);
+        Commands::Tile(tile) => {
+            let tile_comand = tile.command.as_ref().unwrap_or(&TileCommands::Build);
+            match tile_comand {
+                TileCommands::Build => {
+                    let event_loop = EventLoop::new().unwrap();
+                    let window = Window::new(&event_loop).unwrap();
+                    window.set_visible(false);
+                    let _ = monitors(&window);
                 }
-            }
-        }
-        Commands::Get {
-            query,
-            preview,
-            download,
-        } => {
-            let skins = data.search_skins(query);
-            if *preview || *download {
-                match skins.len() {
-                    0 => {
-                        println!("No results found! Try again...");
-                    }
-                    1 => {
-                        let skin_data = data.skin(&skins[0].name).unwrap();
-                        if *preview {
-                            let _ = preview_splash(skin_data);
-                        }
-                        if *download {
-                            let _ = data.download(skin_data);
-                        }
-                    }
-                    _ => {
-                        println!("Select skins from the list to preview using their id's separated by spaces (Ex: 1 2 4):");
-                        for (index, skin) in skins.iter().enumerate() {
-                            println!("  {index}: {:?}", skin.name);
-                        }
-
-                        let mut input = String::default();
-                        let _ = std::io::stdin().read_line(&mut input);
-
-                        match input.trim() {
-                            "" => {
-                                for skin in skins.iter() {
-                                    if let Some(skin_data) = data.skin(&skin.name) {
-                                        if *preview {
-                                            let _ = preview_splash(skin_data);
-                                        }
-                                        if *download {
-                                            let _ = data.download(skin_data);
-                                        }
-                                    }
-                                }
-                            }
-                            _ => {
-                                let selected_skins =
-                                    input.trim().split(' ').map(|val| val.parse::<usize>());
-                                for selected_skin in selected_skins.flatten() {
-                                    let selected_name = &skins[selected_skin].name;
-                                    if let Some(skin_data) = data.skin(selected_name) {
-                                        if *preview {
-                                            let _ = preview_splash(skin_data);
-                                        }
-                                        if *download {
-                                            let _ = data.download(skin_data);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                TileCommands::Add { query } => {
+                    let splashes = data.search_skins(query);
+                    let options: Vec<String> =
+                        splashes.iter().map(|splash| splash.name.clone()).collect();
+                    let selection = MultiSelect::new()
+                        .with_prompt("Which one?")
+                        .report(false)
+                        .items(&options)
+                        .interact()
+                        .unwrap()
+                        .iter()
+                        .map(|i| splashes[*i].id.to_string())
+                        .collect();
+                    data.add_tiled_ids(selection);
+                    dbg!(data.app_state);
                 }
-            } else {
-                for (index, skin) in skins.iter().enumerate() {
-                    println!("  {index}: {:?}", skin.name);
+                TileCommands::Remove => {
+                    let splashes = data.get_skins_by_ids(&data.app_state.tile_imgs);
+                    let options: Vec<String> =
+                        splashes.iter().map(|splash| splash.name.clone()).collect();
+                    let selection = MultiSelect::new()
+                        .with_prompt("Which one?")
+                        .report(false)
+                        .items(&options)
+                        .interact()
+                        .unwrap()
+                        .iter()
+                        .map(|i| splashes[*i].id.to_string())
+                        .collect();
+                    data.remove_tiled_ids(selection);
+                    dbg!(data.app_state);
+                }
+                TileCommands::List => {
+                    let splashes = data.get_skins_by_ids(&data.app_state.tile_imgs);
+                    splashes.iter().for_each(|skin| println!("{:?}", skin.name))
                 }
             }
         }

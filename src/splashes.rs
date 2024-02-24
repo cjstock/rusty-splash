@@ -1,10 +1,17 @@
 pub use image::EncodableLayout;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{collections::HashMap, error::Error, fs, io, path::PathBuf, sync::mpsc, thread, u32};
+use std::{
+    collections::{HashMap, HashSet},
+    error::Error,
+    fs, io,
+    path::PathBuf,
+    sync::mpsc,
+    thread, u32,
+};
 
 use crate::{
-    cache::Cache,
+    cache::{App, Cache},
     datadragon::{get_latest_version, request_champs},
 };
 
@@ -56,6 +63,7 @@ pub struct Splashes {
     pub cache: Cache,
     pub patch: String,
     pub save_dir: PathBuf,
+    pub app_state: App,
 }
 
 impl Splashes {
@@ -88,9 +96,7 @@ impl Splashes {
         );
         let response = reqwest::blocking::get(url)?;
         let image_data = response.bytes()?;
-        let save_path =
-            self.save_dir
-                .join(format!("{}_{}.jpg", skin.champ.clone().unwrap(), skin.num));
+        let save_path = self.save_dir.join(format!("{}.jpg", skin.id));
         io::copy(
             &mut image_data.as_bytes(),
             &mut fs::File::create(save_path)?,
@@ -117,6 +123,14 @@ impl Splashes {
             .collect::<Vec<&Skin>>()
     }
 
+    pub fn get_skins_by_ids(&self, ids: &HashSet<String>) -> Vec<&Skin> {
+        self.champions
+            .iter()
+            .flat_map(|champ| &champ.1.skins)
+            .filter(|skin| ids.contains(&skin.id))
+            .collect::<Vec<&Skin>>()
+    }
+
     pub fn new() -> Splashes {
         let mut splashes = Splashes::default();
         let latest_version = get_latest_version();
@@ -138,6 +152,10 @@ impl Splashes {
         }
         splashes.save_dir = splashes.cache.path.join("splashes");
         let _ = fs::create_dir_all(&splashes.save_dir);
+        let app_state = splashes.cache.get_app_state();
+        if let Ok(state) = app_state {
+            splashes.app_state.tile_imgs = state.tile_imgs;
+        }
         splashes
     }
 
@@ -145,6 +163,35 @@ impl Splashes {
         if let Ok(splashes) = self.cache.get_data() {
             self.champions = splashes.champions;
         }
+    }
+
+    pub fn add_tiled_ids(&mut self, ids: HashSet<String>) {
+        self.app_state.tile_imgs = self
+            .app_state
+            .tile_imgs
+            .union(&ids)
+            .map(|v| v.to_string())
+            .collect();
+        self.cache.save_app_state(&self.app_state);
+    }
+
+    pub fn get_selected_skin_names(&self) -> Vec<String> {
+        self.champions
+            .iter()
+            .flat_map(|champ| &champ.1.skins)
+            .filter(|skin| self.app_state.tile_imgs.contains(&skin.id))
+            .map(|skin| skin.name.clone())
+            .collect()
+    }
+
+    pub fn remove_tiled_ids(&mut self, ids: HashSet<String>) {
+        self.app_state.tile_imgs = self
+            .app_state
+            .tile_imgs
+            .difference(&ids)
+            .map(|v| v.to_string())
+            .collect();
+        self.cache.save_app_state(&self.app_state);
     }
 
     pub fn save_data(&self) {
@@ -231,31 +278,4 @@ fn populate_champ(patch: String, champ_name: &str) -> Champion {
     champion.skins = skin_data;
     champion.tags = tag_data;
     champion
-}
-
-#[cfg(test)]
-#[test]
-fn open_preview() {
-    use crate::datadragon;
-
-    let data = Splashes::new();
-    let _ = datadragon::preview_splash(data.skin("Aatrox").unwrap());
-}
-
-#[test]
-fn champ_data() {
-    let data = Splashes::new();
-    let aatrox = data.champions.get("Aatrox").unwrap();
-    let data = serde_json::to_string_pretty(&aatrox).unwrap();
-    let _ = fs::write("aatrox_object.json", data);
-}
-
-#[test]
-fn champ_string() {
-    let latest_patch = get_latest_version();
-    let data = Champion::new("Aatrox");
-    let data = data.fetch_champ(&latest_patch).unwrap();
-    let data: Value = serde_json::from_str(&data).unwrap();
-    let champ = serde_json::to_string_pretty(&data).unwrap();
-    let _ = fs::write("aatrox.json", champ);
 }

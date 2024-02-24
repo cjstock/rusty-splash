@@ -8,6 +8,7 @@ description = "Preview and download official League of Legends champion splash a
 
 [dependencies]
 clap = { version = "4.4.12", features = ["derive"] }
+dialoguer = "0.11.0"
 dirs = "5.0.1"
 image = "0.24.7"
 open = "5.0.1"
