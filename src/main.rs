@@ -1,6 +1,5 @@
 use clap::{Args, Parser, Subcommand};
 use dialoguer::MultiSelect;
-use rusty_splash::datadragon::preview_splash;
 use rusty_splash::splashes::Splashes;
 use rusty_splash::tiled_splash::{build_tile, monitors};
 use winit::event_loop::EventLoop;
@@ -46,14 +45,18 @@ fn main() {
                     let event_loop = EventLoop::new().unwrap();
                     let window = Window::new(&event_loop).unwrap();
                     window.set_visible(false);
-                    let _ = monitors(&window);
+                    let monitors = monitors(&window);
+                    let paths = data
+                        .download(data.app_state.tile_imgs.clone().into_iter().collect())
+                        .unwrap();
+                    build_tile(paths, monitors[0].into());
                 }
                 TileCommands::Add { query } => {
                     let splashes = data.search_skins(query);
                     let options: Vec<String> =
                         splashes.iter().map(|splash| splash.name.clone()).collect();
                     let selection = MultiSelect::new()
-                        .with_prompt("Which one?")
+                        .with_prompt("Select all with 'a'")
                         .report(false)
                         .items(&options)
                         .interact()
@@ -62,14 +65,17 @@ fn main() {
                         .map(|i| splashes[*i].id.to_string())
                         .collect();
                     data.add_tiled_ids(selection);
-                    dbg!(data.app_state);
                 }
                 TileCommands::Remove => {
-                    let splashes = data.get_skins_by_ids(&data.app_state.tile_imgs);
+                    let splashes = data
+                        .get_skins_by_ids(&data.app_state.tile_imgs.clone().into_iter().collect());
+                    if splashes.is_empty() {
+                        return;
+                    }
                     let options: Vec<String> =
                         splashes.iter().map(|splash| splash.name.clone()).collect();
                     let selection = MultiSelect::new()
-                        .with_prompt("Which one?")
+                        .with_prompt("Select all with 'a'")
                         .report(false)
                         .items(&options)
                         .interact()
@@ -78,10 +84,10 @@ fn main() {
                         .map(|i| splashes[*i].id.to_string())
                         .collect();
                     data.remove_tiled_ids(selection);
-                    dbg!(data.app_state);
                 }
                 TileCommands::List => {
-                    let splashes = data.get_skins_by_ids(&data.app_state.tile_imgs);
+                    let splashes = data
+                        .get_skins_by_ids(&data.app_state.tile_imgs.clone().into_iter().collect());
                     splashes.iter().for_each(|skin| println!("{:?}", skin.name))
                 }
             }

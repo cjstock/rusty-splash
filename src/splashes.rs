@@ -5,7 +5,7 @@ use std::{
     collections::{HashMap, HashSet},
     error::Error,
     fs, io,
-    path::PathBuf,
+    path::{self, PathBuf},
     sync::mpsc,
     thread, u32,
 };
@@ -88,20 +88,26 @@ impl Splashes {
         None
     }
 
-    pub fn download(&self, skin: &Skin) -> Result<(), Box<dyn Error>> {
-        let url = format!(
-            "https://ddragon.leagueoflegends.com/cdn/img/champion/splash/{}_{}.jpg",
-            skin.champ.clone().unwrap(),
-            skin.num
-        );
-        let response = reqwest::blocking::get(url)?;
-        let image_data = response.bytes()?;
-        let save_path = self.save_dir.join(format!("{}.jpg", skin.id));
-        io::copy(
-            &mut image_data.as_bytes(),
-            &mut fs::File::create(save_path)?,
-        )?;
-        Ok(())
+    pub fn download(&self, ids: Vec<String>) -> Result<Vec<PathBuf>, Box<dyn Error>> {
+        let mut paths: Vec<PathBuf> = vec![];
+        for skin in self.get_skins_by_ids(&ids) {
+            let save_path = self.save_dir.join(format!("{}.jpg", skin.id));
+            if !path::Path::try_exists(&save_path).unwrap() {
+                let url = format!(
+                    "https://ddragon.leagueoflegends.com/cdn/img/champion/splash/{}_{}.jpg",
+                    skin.champ.clone().unwrap(),
+                    skin.num
+                );
+                let response = reqwest::blocking::get(url)?;
+                let image_data = response.bytes()?;
+                io::copy(
+                    &mut image_data.as_bytes(),
+                    &mut fs::File::create(save_path.clone())?,
+                )?;
+            }
+            paths.push(save_path);
+        }
+        Ok(paths)
     }
 
     pub fn all_tags(&self) -> Vec<String> {
@@ -123,7 +129,7 @@ impl Splashes {
             .collect::<Vec<&Skin>>()
     }
 
-    pub fn get_skins_by_ids(&self, ids: &HashSet<String>) -> Vec<&Skin> {
+    pub fn get_skins_by_ids(&self, ids: &Vec<String>) -> Vec<&Skin> {
         self.champions
             .iter()
             .flat_map(|champ| &champ.1.skins)

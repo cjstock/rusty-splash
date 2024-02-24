@@ -134,10 +134,10 @@ pub fn adjust_images(images: &mut Vec<DynamicImage>, params: TileParams) {
     }
 }
 
-pub fn build_tile(splashes: Vec<PathBuf>, monitor: (u32, u32)) {
-    if !splashes.is_empty() {
+pub fn build_tile(splash_paths: Vec<PathBuf>, monitor: (u32, u32)) {
+    if !splash_paths.is_empty() {
         let mut images: Vec<DynamicImage> = vec![];
-        for splash in &splashes {
+        for splash in &splash_paths {
             images.push(image::open(splash).unwrap());
         }
         let image_dims = images.first().unwrap().dimensions();
@@ -150,16 +150,15 @@ pub fn build_tile(splashes: Vec<PathBuf>, monitor: (u32, u32)) {
         );
         println!("Done");
         if let Some(params) = tile_params {
+            println!("Building tile...");
             let adjusted: Vec<DynamicImage> = images
                 .iter_mut()
                 .map(|image| {
-                    println!("Resizing...");
                     let image = image.resize(
                         params.image_res.0,
                         params.image_res.1,
                         image::imageops::FilterType::Lanczos3,
                     );
-                    println!("Cropping...");
                     image.crop_imm(
                         params.image_adjust.0 / 2,
                         params.image_adjust.1 / 2,
@@ -184,7 +183,7 @@ pub fn build_tile(splashes: Vec<PathBuf>, monitor: (u32, u32)) {
                 }
             }
 
-            let mut tile_path = splashes.first().unwrap().clone();
+            let mut tile_path = splash_paths.first().unwrap().clone();
             tile_path.pop();
             tile_path.push("tiled.jpg");
             let _ = new_image.save_with_format(tile_path, image::ImageFormat::Jpeg);
