@@ -7,11 +7,13 @@ description = "Preview and download official League of Legends champion splash a
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+chrono = { version = "0.4.34", features = ["serde"] }
 clap = { version = "4.4.12", features = ["derive"] }
 dialoguer = "0.11.0"
 dirs = "5.0.1"
 image = "0.24.7"
 open = "5.0.1"
+rayon = "1.8.1"
 reqwest = { version = "0.11.23", features = ["blocking"] }
 serde = { version = "1.0.193", features = ["derive"] }
 serde_json = "1.0.108"

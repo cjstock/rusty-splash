@@ -1,10 +1,11 @@
 pub use image::EncodableLayout;
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
-    error::Error,
     fs, io,
+    ops::Deref,
     path::{self, PathBuf},
     sync::mpsc,
     thread, u32,
@@ -12,7 +13,7 @@ use std::{
 
 use crate::{
     cache::{App, Cache},
-    datadragon::{get_latest_version, request_champs},
+    datadragon::{get_latest_version, request_champs, splash_url},
 };
 
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -54,7 +55,7 @@ pub struct Skin {
     pub name: String,
     pub chromas: bool,
     pub num: u32,
-    pub champ: Option<String>,
+    pub champ: String,
 }
 
 #[derive(Default, Serialize, Deserialize, Debug)]
@@ -88,26 +89,35 @@ impl Splashes {
         None
     }
 
-    pub fn download(&self, ids: Vec<String>) -> Result<Vec<PathBuf>, Box<dyn Error>> {
-        let mut paths: Vec<PathBuf> = vec![];
-        for skin in self.get_skins_by_ids(&ids) {
-            let save_path = self.save_dir.join(format!("{}.jpg", skin.id));
-            if !path::Path::try_exists(&save_path).unwrap() {
-                let url = format!(
-                    "https://ddragon.leagueoflegends.com/cdn/img/champion/splash/{}_{}.jpg",
-                    skin.champ.clone().unwrap(),
-                    skin.num
-                );
-                let response = reqwest::blocking::get(url)?;
-                let image_data = response.bytes()?;
-                io::copy(
-                    &mut image_data.as_bytes(),
-                    &mut fs::File::create(save_path.clone())?,
-                )?;
-            }
-            paths.push(save_path);
+    pub fn download(&self, skin: &Skin) -> PathBuf {
+        let save_path = self.save_dir.join(format!("{}.jpg", skin.id));
+        if !path::Path::try_exists(&save_path).unwrap() {
+            let url = splash_url(skin);
+            let response = reqwest::blocking::get(url)
+                .unwrap_or_else(|error| panic!("Error while downloading {}: {error}", skin.id));
+            let image_data = response
+                .bytes()
+                .unwrap_or_else(|error| panic!("Error getting bytes from {}: {error}", skin.id));
+            io::copy(
+                &mut image_data.as_bytes(),
+                &mut fs::File::create(save_path.clone()).unwrap_or_else(|error| {
+                    panic!("Error creating file for skin {}: {error}", skin.id)
+                }),
+            )
+            .unwrap_or_else(|error| {
+                panic!(
+                    "Error copying image bytes for {} to new file: {error}",
+                    skin.id
+                )
+            });
         }
-        Ok(paths)
+        save_path
+    }
+    pub fn download_ids(&self, ids: Vec<String>) -> Vec<PathBuf> {
+        self.get_skins_by_ids(&ids)
+            .par_iter()
+            .map(|skin| self.download(skin))
+            .collect()
     }
 
     pub fn all_tags(&self) -> Vec<String> {
@@ -265,7 +275,7 @@ fn populate_champ(patch: String, champ_name: &str) -> Champion {
     let mut skin_data: Vec<Skin> = serde_json::from_str(&skins.to_string())
         .unwrap_or_else(|error| panic!("Failed to deserialize skins for {champ_name}: {error}"));
     for skin in skin_data.iter_mut() {
-        skin.champ = Some(champ_name.to_string());
+        skin.champ = champ_name.to_string();
     }
     let default_splash = skin_data
         .iter_mut()

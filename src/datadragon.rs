@@ -11,12 +11,20 @@ pub fn get_latest_version() -> String {
     rx.recv().expect("Problem getting latest version").unwrap()
 }
 
-pub fn preview_splash(skin: &Skin) -> Result<(), Error> {
-    let url = format!(
+pub fn splash_url(skin: &Skin) -> String {
+    format!(
         "https://ddragon.leagueoflegends.com/cdn/img/champion/splash/{}_{}.jpg",
-        skin.champ.clone().unwrap(),
+        if skin.id == "9027" {
+            "FiddleSticks".to_string()
+        } else {
+            skin.champ.clone()
+        },
         skin.num
-    );
+    )
+}
+
+pub fn preview_splash(skin: &Skin) -> Result<(), Error> {
+    let url = splash_url(skin);
     open::that(url)?;
     Ok(())
 }

@@ -1,5 +1,6 @@
 use clap::{Args, Parser, Subcommand};
 use dialoguer::MultiSelect;
+use rusty_splash::datadragon::preview_splash;
 use rusty_splash::splashes::Splashes;
 use rusty_splash::tiled_splash::{build_tile, monitors};
 use winit::event_loop::EventLoop;
@@ -15,6 +16,7 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Commands {
     Tile(TileArgs),
+    Preview { query: String },
 }
 
 #[derive(Debug, Args)]
@@ -46,10 +48,9 @@ fn main() {
                     let window = Window::new(&event_loop).unwrap();
                     window.set_visible(false);
                     let monitors = monitors(&window);
-                    let paths = data
-                        .download(data.app_state.tile_imgs.clone().into_iter().collect())
-                        .unwrap();
-                    build_tile(paths, monitors[0].into());
+                    let mut paths =
+                        data.download_ids(data.app_state.tile_imgs.clone().into_iter().collect());
+                    build_tile(&mut paths, monitors[0].into());
                 }
                 TileCommands::Add { query } => {
                     let splashes = data.search_skins(query);
@@ -91,6 +92,22 @@ fn main() {
                     splashes.iter().for_each(|skin| println!("{:?}", skin.name))
                 }
             }
+        }
+        Commands::Preview { query } => {
+            let splashes = data.search_skins(query);
+            let options: Vec<String> = splashes.iter().map(|splash| splash.name.clone()).collect();
+            let selection: Vec<&rusty_splash::splashes::Skin> = MultiSelect::new()
+                .with_prompt("Select all with 'a'")
+                .report(false)
+                .items(&options)
+                .interact()
+                .unwrap()
+                .iter()
+                .map(|i| splashes[*i])
+                .collect();
+            selection
+                .iter()
+                .for_each(|skin| preview_splash(skin).unwrap());
         }
     }
 }

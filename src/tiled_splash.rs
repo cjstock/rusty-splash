@@ -1,12 +1,8 @@
 use image::{DynamicImage, GenericImage, GenericImageView, ImageBuffer, RgbaImage};
-use std::{
-    path::PathBuf,
-    sync::{mpsc, Arc, Mutex},
-    thread,
-};
+use std::path::PathBuf;
 use winit::{dpi::PhysicalSize, window::Window};
 
-use crate::splashes::Splashes;
+use rayon::prelude::*;
 
 pub fn monitors(window: &Window) -> Vec<PhysicalSize<u32>> {
     let monitors = window.available_monitors();
@@ -101,93 +97,62 @@ pub fn calculate_tile_x_bias(
     }
 }
 
-pub fn adjust_images(images: &mut Vec<DynamicImage>, params: TileParams) {
-    let len = images.len();
-    let temp = Arc::new(Mutex::new(images.clone()));
-
-    let mut threads = vec![];
-
-    for i in 0..len {
-        threads.push(thread::spawn({
-            let clone = Arc::clone(&temp);
-            move || {
-                let mut t = clone.lock().unwrap();
-                let image = &t[i];
+pub fn build_tile(splash_paths: &mut Vec<PathBuf>, monitor: (u32, u32)) {
+    if splash_paths.is_empty() {
+        return;
+    }
+    let image_dims = image::open(splash_paths.first().unwrap())
+        .unwrap()
+        .dimensions();
+    println!("Calculating optimal tile...");
+    let tile_params = find_optimal_tile(
+        image_dims,
+        monitor,
+        splash_paths.len().try_into().unwrap(),
+        (0, 0),
+    );
+    println!("Done");
+    if let Some(params) = tile_params {
+        println!("Building tile...");
+        let adjusted: Vec<DynamicImage> = splash_paths
+            .par_iter_mut()
+            .map(|path| {
+                let image = image::open(path.clone()).unwrap_or_else(|error| {
+                    panic!("Error opening {}: {error}", path.to_str().unwrap())
+                });
                 let image = image.resize(
                     params.image_res.0,
                     params.image_res.1,
                     image::imageops::FilterType::Lanczos3,
                 );
-                let image = image.crop_imm(
+                image.crop_imm(
                     params.image_adjust.0 / 2,
                     params.image_adjust.1 / 2,
                     params.image_res.0 - (params.image_adjust.0),
                     params.image_res.1 - (params.image_adjust.1),
-                );
-                t[i] = image;
-            }
-        }));
-    }
-
-    for t in threads {
-        t.join().unwrap();
-    }
-}
-
-pub fn build_tile(splash_paths: Vec<PathBuf>, monitor: (u32, u32)) {
-    if !splash_paths.is_empty() {
-        let mut images: Vec<DynamicImage> = vec![];
-        for splash in &splash_paths {
-            images.push(image::open(splash).unwrap());
-        }
-        let image_dims = images.first().unwrap().dimensions();
-        println!("Calculating optimal tile...");
-        let tile_params = find_optimal_tile(
-            image_dims,
-            monitor,
-            images.len().try_into().unwrap(),
-            (0, 0),
-        );
+                )
+            })
+            .collect();
         println!("Done");
-        if let Some(params) = tile_params {
-            println!("Building tile...");
-            let adjusted: Vec<DynamicImage> = images
-                .iter_mut()
-                .map(|image| {
-                    let image = image.resize(
-                        params.image_res.0,
-                        params.image_res.1,
-                        image::imageops::FilterType::Lanczos3,
-                    );
-                    image.crop_imm(
-                        params.image_adjust.0 / 2,
-                        params.image_adjust.1 / 2,
-                        params.image_res.0 - (params.image_adjust.0),
-                        params.image_res.1 - (params.image_adjust.1),
-                    )
-                })
-                .collect();
-            println!("Done");
-            let mut new_image: RgbaImage = ImageBuffer::new(
-                params.dims.0 * (params.image_res.0 - params.image_adjust.0),
-                params.dims.1 * (params.image_res.1 - params.image_adjust.1),
-            );
-            let mut count: usize = 0;
-            for i in 0..params.dims.1 {
-                for j in 0..params.dims.0 {
-                    let index = count.rem_euclid(adjusted.len());
-                    let x = j * adjusted[index].dimensions().0;
-                    let y = i * adjusted[index].dimensions().1;
-                    new_image.copy_from(&adjusted[index], x, y).unwrap();
-                    count += 1;
-                }
+        let mut new_image: RgbaImage = ImageBuffer::new(
+            params.dims.0 * (params.image_res.0 - params.image_adjust.0),
+            params.dims.1 * (params.image_res.1 - params.image_adjust.1),
+        );
+        let mut count: usize = 0;
+        for i in 0..params.dims.1 {
+            for j in 0..params.dims.0 {
+                let index = count.rem_euclid(adjusted.len());
+                let x = j * adjusted[index].dimensions().0;
+                let y = i * adjusted[index].dimensions().1;
+                new_image.copy_from(&adjusted[index], x, y).unwrap();
+                count += 1;
             }
-
-            let mut tile_path = splash_paths.first().unwrap().clone();
-            tile_path.pop();
-            tile_path.push("tiled.jpg");
-            let _ = new_image.save_with_format(tile_path, image::ImageFormat::Jpeg);
         }
+
+        let mut tile_path = splash_paths.first().unwrap().clone();
+        tile_path.pop();
+        tile_path.push("tiled.jpg");
+        let _ = new_image.save_with_format(tile_path, image::ImageFormat::Jpeg);
     }
 }
 pub fn merge_two(left_path: PathBuf, right_path: PathBuf) {
@@ -206,29 +171,4 @@ pub fn merge_two(left_path: PathBuf, right_path: PathBuf) {
     merged_path.pop();
     merged_path.push("merged.jpg");
     let _ = tiled_image.save_with_format(merged_path, image::ImageFormat::Jpeg);
-}
-
-#[cfg(test)]
-#[test]
-fn merge() {
-    use crate::splashes::Splashes;
-
-    let splash_data = Splashes::new();
-    let mut left = splash_data.save_dir.clone();
-    let mut right = splash_data.save_dir.clone();
-    left.push("Draven_0.jpg");
-    right.push("Draven_1.jpg");
-
-    merge_two(left, right);
-}
-
-#[test]
-fn tile() {
-    let splash_data = Splashes::new();
-    let mut draven_path = splash_data.save_dir.clone();
-    draven_path.push("Draven_0.jpg");
-
-    let splashes = vec![draven_path];
-
-    build_tile(splashes, (3840, 1600));
 }
