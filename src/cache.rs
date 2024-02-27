@@ -13,16 +13,38 @@ pub struct Cache {
     pub app_state_file: PathBuf,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct App {
     pub tile_imgs: HashSet<String>,
 }
 
-impl Default for App {
-    fn default() -> Self {
-        Self {
-            tile_imgs: HashSet::new(),
+pub trait Cached: Serialize + for<'a> Deserialize<'a> {
+    fn cache_name(&self) -> String;
+
+    fn save(&self) -> Result<(), Box<dyn Error>> {
+        let cache_str = serde_json::to_string_pretty(&self)?;
+        fs::write(self.cache(), cache_str)?;
+        Ok(())
+    }
+
+    fn load(mut self) -> Result<(), Box<dyn Error>> {
+        let cached_data: String = fs::read_to_string(self.cache())?.parse()?;
+
+        self = serde_json::from_str(&cached_data.to_owned())?;
+
+        Ok(())
+    }
+
+    fn cache(&self) -> PathBuf {
+        let home = dirs::home_dir().unwrap_or_else(|| panic!("Couldn't get home dir"));
+        let mut file_path = [home.to_str().unwrap(), "rusty-splash"]
+            .iter()
+            .collect::<PathBuf>();
+        if !file_path.exists() {
+            fs::create_dir_all(&file_path).unwrap();
         }
+        file_path.push(format!("{}.json", self.cache_name()));
+        file_path
     }
 }
 

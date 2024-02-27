@@ -1,31 +1,67 @@
 use chrono::{DateTime, Utc};
+use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{collections::HashMap, u32, u64};
+use std::{collections::HashMap, default, fmt::Display, path::PathBuf, u32, u64};
 
-#[derive(Debug, Serialize, Deserialize)]
+use crate::cache::Cached;
+
+#[derive(Debug, Default, Serialize, Deserialize)]
 struct CDragon {
-    latest_date: String,
-    champions: HashMap<String, Champion>,
+    latest_date: DateTime<Utc>,
+    champions: HashMap<u64, Champion>,
     plugins: Vec<Plugin>,
 }
 
+impl Cached for CDragon {
+    fn cache_name(&self) -> String {
+        String::from("c_dragon")
+    }
+}
+
 impl CDragon {
-    pub fn fetch_plugins() -> String {
+    pub fn new() -> Self {
+        let cdragon = Self::default();
+
+        let plugins =
+            Self::get_plugins().unwrap_or_else(|error| panic!("Couldn't get plugins: {error}"));
+
+        let latest_date = plugins
+            .first()
+            .unwrap_or_else(|| panic!("Couldn't find first plugin"))
+            .mtime;
+
+        if let Err(err) = cdragon.load() {
+            panic!("Error loading c_dragon cache: {err}");
+        }
+
+        let mut champions =
+            Self::get_champions().unwrap_or_else(|error| panic!("Couldn't get champions: {error}"));
+        for mut champion in &mut champions {
+            Self::populate_skins(&mut champion.1);
+        }
+        CDragon {
+            plugins,
+            champions,
+            latest_date,
+        }
+    }
+
+    fn fetch_plugins() -> String {
         fetch("https://raw.communitydragon.org/json/latest/plugins/".to_string())
     }
 
-    pub fn get_plugins() -> Result<Vec<Plugin>, serde_json::Error> {
+    fn get_plugins() -> Result<Vec<Plugin>, serde_json::Error> {
         let plugin_res = Self::fetch_plugins();
-        let plugins = serde_json::from_str::<Vec<Plugin>>(&plugin_res)?;
+        let plugins: Vec<Plugin> = serde_json::from_str(&plugin_res)?;
         Ok(plugins)
     }
 
-    pub fn fetch_champions() -> String {
+    fn fetch_champions() -> String {
         fetch("https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/champion-summary.json".to_string())
     }
 
-    pub fn get_champions() -> Result<HashMap<u64, Champion>, serde_json::Error> {
+    fn get_champions() -> Result<HashMap<u64, Champion>, serde_json::Error> {
         let champ_res = Self::fetch_champions();
         let data: Value = serde_json::from_str(&champ_res)?;
         let champions: HashMap<u64, Champion> = data
@@ -40,6 +76,7 @@ impl CDragon {
                 (
                     id,
                     Champion {
+                        id,
                         name,
                         alias,
                         skins: HashMap::new(),
@@ -47,41 +84,123 @@ impl CDragon {
                 )
             })
             .collect();
-        dbg!(&champions);
         Ok(champions)
+    }
+
+    pub fn fetch_champion(id: u64) -> String {
+        fetch(format!("https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/champions/{}.json", id).to_string())
+    }
+
+    pub fn populate_skins(champion: &mut Champion) -> Result<(), serde_json::Error> {
+        let champ_res = Self::fetch_champion(champion.id);
+        let data: Value = serde_json::from_str(&champ_res)?;
+        let skins: HashMap<u64, Skin> = data
+            .as_object()
+            .unwrap()
+            .get("skins")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| {
+                let id: u64 = value.get("id").unwrap().as_u64().unwrap();
+                let skin: Skin = serde_json::from_value(value.to_owned()).unwrap();
+                (id, skin)
+            })
+            .collect();
+        champion.skins = skins;
+        Ok(())
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 struct Champion {
+    id: u64,
     name: String,
     alias: String,
-    skins: HashMap<String, Skin>,
+    skins: HashMap<u64, Skin>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Skin {
-    id: u32,
-    is_base: bool,
+    id: u64,
     name: String,
+    is_base: bool,
     splash_path: String,
     uncentered_splash_path: String,
     skin_type: String,
     rarity: String,
     is_legacy: bool,
-    chroma_path: Option<String>,
     skin_lines: Option<Vec<SkinLine>>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 struct SkinLine {
     id: u32,
+    #[serde(default)]
     name: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum PluginName {
+    #[default]
+    None,
+    RcpBeLolGameData,
+    RcpBeLolLicenseAgreement,
+    RcpBeSanitizer,
+    RcpFeAudio,
+    RcpFeCommonLibs,
+    RcpFeEmberLibs,
+    RcpFeLolCareerStats,
+    RcpFeLolChampSelect,
+    RcpFeLolChampionDetails,
+    RcpFeLolChampionStatistics,
+    RcpFeLolClash,
+    RcpFeLolCollections,
+    RcpFeLolEsportsSpectate,
+    RcpFeLolEventHub,
+    RcpFeLolEventShop,
+    RcpFeLolHighlights,
+    RcpFeLolHonor,
+    RcpFeLolKickout,
+    RcpFeLolL10n,
+    RcpFeLolLeagues,
+    RcpFeLolLockAndLoad,
+    RcpFeLolLoot,
+    RcpFeLolMatchHistory,
+    RcpFeLolNavigation,
+    RcpFeLolNewPlayerExperience,
+    RcpFeLolNpeRewards,
+    RcpFeLolParties,
+    RcpFeLolPaw,
+    RcpFeLolPft,
+    RcpFeLolPostgame,
+    RcpFeLolPremadeVoice,
+    RcpFeLolProfiles,
+    RcpFeLolSettings,
+    RcpFeLolSharedComponents,
+    RcpFeLolSkinsPicker,
+    RcpFeLolSocial,
+    RcpFeLolStartup,
+    RcpFeLolStaticAssets,
+    RcpFeLolStore,
+    RcpFeLolTft,
+    RcpFeLolTftTeamPlanner,
+    RcpFeLolTftTroves,
+    RcpFeLolTypekit,
+    RcpFeLolUikit,
+    RcpFeLolYourshop,
+    RcpFePluginRunner,
+    #[serde(other)]
+    PluginManifest,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
 struct Plugin {
-    name: String,
+    #[serde(rename(deserialize = "name"))]
+    name: PluginName,
     #[serde(with = "mtime_format")]
     mtime: DateTime<Utc>,
 }
@@ -135,6 +254,7 @@ pub fn fetch(url: String) -> String {
 #[test]
 fn get_plugins() {
     let plugins = CDragon::get_plugins();
+    dbg!(&plugins);
     assert!(plugins.is_ok())
 }
 
@@ -142,4 +262,20 @@ fn get_plugins() {
 fn get_champions() {
     let champions = CDragon::get_champions();
     assert!(champions.is_ok())
+}
+
+#[test]
+fn populate_skins() {
+    let mut champions = CDragon::get_champions().unwrap();
+    let annie = champions.get_mut(&1);
+    if let Some(annie) = annie {
+        assert!(CDragon::populate_skins(annie).is_ok());
+    }
+}
+
+#[test]
+fn save_cache() {
+    let data = CDragon::new();
+    dbg!(&data);
+    assert!(data.champions.get(&1).is_some())
 }
