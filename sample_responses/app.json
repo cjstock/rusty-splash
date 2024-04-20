@@ -1,0 +1,20 @@
+{
+  "download_path": "/home/b1nar1us/rusty-splash/downloads",
+  "downloaded": [
+    1001,
+    1000,
+    117000
+  ],
+  "tile_path": "/home/b1nar1us/rusty-splash/tiles",
+  "tiles": [],
+  "monitors": [
+    {
+      "width": 3840,
+      "height": 1600
+    },
+    {
+      "width": 1440,
+      "height": 2560
+    }
+  ]
+}
