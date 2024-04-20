@@ -97,9 +97,13 @@ pub fn calculate_tile_x_bias(
     }
 }
 
-pub fn build_tile(splash_paths: &mut Vec<PathBuf>, monitor: (u32, u32)) {
+pub fn build_tile(
+    splash_paths: &mut Vec<PathBuf>,
+    monitor: (u32, u32),
+    name: impl Into<String>,
+) -> PathBuf {
     if splash_paths.is_empty() {
-        return;
+        return PathBuf::default();
     }
     let image_dims = image::open(splash_paths.first().unwrap())
         .unwrap()
@@ -151,8 +155,11 @@ pub fn build_tile(splash_paths: &mut Vec<PathBuf>, monitor: (u32, u32)) {
 
         let mut tile_path = splash_paths.first().unwrap().clone();
         tile_path.pop();
-        tile_path.push("tiled.jpg");
-        let _ = new_image.save_with_format(tile_path, image::ImageFormat::Jpeg);
+        tile_path.push(format!("{}.jpg", name.into()));
+        let _ = new_image.save_with_format(tile_path.clone(), image::ImageFormat::Jpeg);
+        tile_path
+    } else {
+        PathBuf::default()
     }
 }
 pub fn merge_two(left_path: PathBuf, right_path: PathBuf) {
