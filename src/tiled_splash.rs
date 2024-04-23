@@ -1,13 +1,7 @@
 use image::{DynamicImage, GenericImage, GenericImageView, ImageBuffer, RgbaImage};
 use std::path::PathBuf;
-use winit::{dpi::PhysicalSize, window::Window};
 
 use rayon::prelude::*;
-
-pub fn monitors(window: &Window) -> Vec<PhysicalSize<u32>> {
-    let monitors = window.available_monitors();
-    monitors.into_iter().map(|monitor| monitor.size()).collect()
-}
 
 #[derive(Debug, Default)]
 pub struct TileParams {

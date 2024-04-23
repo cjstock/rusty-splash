@@ -4,13 +4,7 @@ use core::panic;
 use rayon::iter::{IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{
-    collections::HashMap,
-    fs,
-    io::{self},
-    path::PathBuf,
-    u32, u64,
-};
+use std::{collections::HashMap, fs, io, path::PathBuf, u32, u64};
 
 use crate::cache::Cached;
 
@@ -28,11 +22,11 @@ impl Cached for CDragon {
 }
 
 impl CDragon {
-    pub fn new() -> Self {
+    pub fn new() -> anyhow::Result<Self> {
         let mut cdragon = Self::default();
-        cdragon.load();
+        cdragon.load().unwrap_or_default();
 
-        let plugins = Self::get_plugins();
+        let plugins = Self::get_plugins()?;
 
         let game_data_plugin = plugins
             .iter()
@@ -41,22 +35,24 @@ impl CDragon {
             let latest_date = plug.mtime;
             if cdragon.latest_date.lt(&latest_date) {
                 print!("New version found! Updating...");
-                let mut champions = Self::get_champions();
-                let _ = champions
-                    .par_iter_mut()
-                    .for_each(|champ| champ.1.skins = Self::get_skins(*champ.0));
+                let mut champions = Self::get_champions()?;
+                champions.par_iter_mut().for_each(|champ| {
+                    champ.1.skins = Self::get_skins(*champ.0)
+                        .with_context(|| "failed to load skins")
+                        .unwrap();
+                });
                 cdragon = CDragon {
                     champions,
                     latest_date,
                     plugins,
                 };
                 print!("Done!");
-                let _ = cdragon.save();
+                cdragon.save()?;
             }
         } else {
             print!("Failed to check for latest CommunityDragon version!");
         }
-        cdragon
+        Ok(cdragon)
     }
 
     fn fetch_plugins() -> String {
@@ -66,39 +62,44 @@ impl CDragon {
             .unwrap_or_else(|err| panic!("error in plugin response text: {err}"))
     }
 
-    fn get_plugins() -> Vec<Plugin> {
+    fn get_plugins() -> anyhow::Result<Vec<Plugin>> {
         let plugin_res = Self::fetch_plugins();
-        serde_json::from_str(&plugin_res).unwrap_or_default()
+        serde_json::from_str(&plugin_res).with_context(|| "failed to deserialize plugins")
     }
 
-    fn fetch_champions() -> String {
+    fn fetch_champions() -> anyhow::Result<String> {
         fetch("https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/champion-summary.json".to_string())
-        .unwrap_or_else(|err| panic!("error fetching champions: {err}"))
+        .with_context(|| format!("error fetching champions"))?
             .text()
-            .unwrap_or_else(|err| panic!("error in champions response text: {err}"))
+            .with_context(|| format!("error in champions response text"))
     }
 
-    fn get_champions() -> HashMap<u64, Champion> {
-        let champ_res = Self::fetch_champions();
-        let data: Value = serde_json::from_str(&champ_res).unwrap_or_default();
-        let champions: HashMap<u64, Champion> = data
+    fn get_champions() -> anyhow::Result<HashMap<u64, Champion>> {
+        let champ_res = Self::fetch_champions().with_context(|| "failed to fetch champions")?;
+        let data: Value = serde_json::from_str(&champ_res)
+            .with_context(|| "failed to deserialize champions response")?;
+        let champions: anyhow::Result<HashMap<u64, Champion>> = data
             .as_array()
-            .unwrap()
+            .with_context(|| "failed to deserialize the champions into an array")?
             .iter()
             .skip(1)
             .map(|value| {
-                let id: u64 = value.get("id").unwrap().as_u64().unwrap_or_default();
+                let id: u64 = value
+                    .get("id")
+                    .with_context(|| "failed to get the id for champion")?
+                    .as_u64()
+                    .with_context(|| "failed to cast the id to u64")?;
                 let name: String = value
                     .get("name")
-                    .unwrap_or_else(|| panic!("no name found for: {id}"))
+                    .with_context(|| "no name found ")?
                     .to_string()
                     .replace('\"', "");
                 let alias: String = value
                     .get("alias")
-                    .unwrap_or_else(|| panic!("no alias found for: {id}"))
+                    .with_context(|| "failed to get alias for champion")?
                     .to_string()
                     .replace('\"', "");
-                (
+                Ok((
                     id,
                     Champion {
                         id,
@@ -106,45 +107,45 @@ impl CDragon {
                         alias,
                         skins: HashMap::new(),
                     },
-                )
+                ))
             })
             .collect();
         champions
     }
 
-    pub fn fetch_champion(id: u64) -> String {
+    pub fn fetch_champion(id: u64) -> anyhow::Result<String> {
         fetch(format!("https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/champions/{}.json", id).to_string())
-        .unwrap_or_else(|err| panic!("error fetching champion: {err}"))
+            .with_context(|| "error fetching champion")?
             .text()
-            .unwrap_or_else(|err| panic!("error in champion response text: {err}"))
+            .with_context(|| "error in champion response text")
     }
 
-    pub fn get_skins(champion_id: u64) -> HashMap<u64, Skin> {
-        let champ_res = Self::fetch_champion(champion_id);
-        let data: Value = serde_json::from_str(&champ_res).unwrap_or_default();
+    pub fn get_skins(champion_id: u64) -> anyhow::Result<HashMap<u64, Skin>> {
+        let champ_res = Self::fetch_champion(champion_id)?;
+        let data: Value = serde_json::from_str(&champ_res)
+            .with_context(|| "failed to convert the response text to a Json value")?;
         data.as_object()
-            .unwrap_or_else(|| panic!("invalid champion structure: {champion_id}"))
+            .with_context(|| "invalid champion structure")?
             .get("skins")
-            .unwrap_or_else(|| panic!("invalid skins structure: {champion_id}"))
+            .with_context(|| "failed to get the skins for the champion")?
             .as_array()
-            .unwrap_or_else(|| panic!("couldn't get skins as array: {champion_id}"))
+            .with_context(|| "failed to convert skins objec to array")?
             .iter()
             .map(|value| {
                 let id: u64 = value
                     .get("id")
-                    .unwrap_or_else(|| panic!("couldn't get skin id for: {value}"))
+                    .with_context(|| "failed to get id for skin")?
                     .as_u64()
-                    .unwrap_or_else(|| panic!("couldn't cast skin id to u64: {value}"));
-                let mut skin: Skin = serde_json::from_value(value.to_owned()).unwrap_or_else(|e| {
-                    panic!("couldn't turn json object to Skin: {value} error: {e}")
-                });
+                    .with_context(|| "failed to cast id for skin to u64")?;
+                let mut skin: Skin = serde_json::from_value(value.to_owned())
+                    .with_context(|| "failed to deserialize skin json")?;
                 skin.uncentered_splash_path = skin
                     .uncentered_splash_path
                     .clone()
                     .components()
                     .skip(3)
                     .collect();
-                (id, skin)
+                Ok((id, skin))
             })
             .collect()
     }

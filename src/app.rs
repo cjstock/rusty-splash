@@ -3,23 +3,35 @@ use std::{collections::HashSet, fs, path::PathBuf};
 
 use dirs::home_dir;
 use serde::{Deserialize, Serialize};
-use winit::dpi::PhysicalSize;
 
 use crate::cache::Cached;
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct App {
     pub download_path: PathBuf,
     pub downloaded: HashSet<u64>,
     pub tile_path: PathBuf,
     pub tiles: Vec<TileInstance>,
-    pub monitors: Vec<PhysicalSize<u32>>,
+    pub monitors: Vec<(u32, u32)>,
+}
+
+impl Default for App {
+    fn default() -> Self {
+        let mut res = Self {
+            download_path: PathBuf::default(),
+            downloaded: HashSet::default(),
+            tiles: vec![],
+            tile_path: PathBuf::default(),
+            monitors: Vec::default(),
+        };
+        res.load();
+        res
+    }
 }
 
 impl App {
-    pub fn new(monitors: Vec<PhysicalSize<u32>>) -> Self {
+    pub fn new(monitors: Vec<(u32, u32)>) -> Self {
         let mut app = App::default();
-        app.load();
         app.monitors = monitors;
         app.download_path = home_dir().map_or(PathBuf::default(), |mut home| {
             home.push("rusty-splash");

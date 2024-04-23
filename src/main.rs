@@ -1,10 +1,10 @@
+use anyhow::{Context, Ok};
 use clap::{Args, Parser, Subcommand};
 use dialoguer::MultiSelect;
+use display_info::DisplayInfo;
 use rusty_splash::app::App;
 use rusty_splash::cdragon::CDragon;
-use rusty_splash::tiled_splash::{build_tile, monitors};
-use winit::event_loop::EventLoop;
-use winit::window::Window;
+use rusty_splash::tiled_splash::build_tile;
 
 #[derive(Parser, Debug)]
 #[command(author = "Corey Stock", about)]
@@ -35,19 +35,22 @@ enum TileCommands {
     List,
 }
 
-fn main() {
-    let event_loop = EventLoop::new().unwrap();
-    let window = Window::new(&event_loop).unwrap();
-    window.set_visible(false);
-    let monitors = monitors(&window);
+fn main() -> anyhow::Result<()> {
+    let monitors = DisplayInfo::all()
+        .with_context(|| "failed to get display info")?
+        .iter()
+        .map(|monitor| (monitor.width, monitor.height))
+        .collect();
     let mut app = App::new(monitors);
-    let mut data = CDragon::new();
+    let mut data = CDragon::new()?;
 
-    let skin = data
-        .skin(117000)
-        .unwrap_or_else(|| panic!("that's not a fucking skin!"));
+    let skin = data.skin(1000);
 
-    if let Ok(_) = CDragon::download_splash(skin, &app.download_path) {
-        app.add_download(skin.id);
-    }
+    skin.and_then(|s| {
+        CDragon::download_splash(s, &app.download_path)
+            .with_context(|| "failed to download skin")
+            .ok()
+    });
+
+    Ok(())
 }
