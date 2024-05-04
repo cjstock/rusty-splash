@@ -1,4 +1,4 @@
-use anyhow::{Context, Ok};
+use anyhow::{anyhow, Context, Ok};
 use chrono::{DateTime, Utc};
 use core::panic;
 use rayon::iter::{IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator};
@@ -162,6 +162,28 @@ impl CDragon {
                     false => None,
                 })
         })
+    }
+
+    pub fn query(&self, query: impl Into<String>) -> anyhow::Result<Vec<&Skin>> {
+        let query: String = query.into();
+        let result: Vec<&Skin> = self
+            .champions
+            .iter()
+            .flat_map(|champ| {
+                champ.1.skins.iter().filter_map(|skin| {
+                    skin.1
+                        .name
+                        .to_lowercase()
+                        .contains(&query.to_lowercase())
+                        .then_some(skin.1)
+                })
+            })
+            .collect();
+        if result.is_empty() {
+            Err(anyhow!("no skins found!"))
+        } else {
+            Ok(result)
+        }
     }
 
     /// Download an uncentered splash

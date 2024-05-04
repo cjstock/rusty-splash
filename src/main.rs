@@ -44,13 +44,15 @@ fn main() -> anyhow::Result<()> {
     let mut app = App::new(monitors);
     let mut data = CDragon::new()?;
 
-    let skin = data.skin(1000);
+    let query = "Blood Moon".to_string();
 
-    skin.and_then(|s| {
-        CDragon::download_splash(s, &app.download_path)
-            .with_context(|| "failed to download skin")
-            .ok()
+    let skins = data.query(query).map(|skins| {
+        skins
+            .iter()
+            .map(|skin| skin.name.clone())
+            .collect::<Vec<String>>()
     });
+    dbg!(&skins);
 
     Ok(())
 }

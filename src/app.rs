@@ -24,7 +24,7 @@ impl Default for App {
             tile_path: PathBuf::default(),
             monitors: Vec::default(),
         };
-        res.load();
+        let _ = res.load();
         res
     }
 }
@@ -80,8 +80,8 @@ impl App {
                 .collect();
         }
     }
-    pub fn add_download(&mut self, id: u64) {
-        self.downloaded.insert(id);
+    pub fn refresh_downloads(&mut self) {
+        self.downloads();
         let _ = self.save();
     }
 }
