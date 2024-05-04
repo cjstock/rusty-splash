@@ -171,11 +171,10 @@ impl CDragon {
             .iter()
             .flat_map(|champ| {
                 champ.1.skins.iter().filter_map(|skin| {
-                    skin.1
-                        .name
-                        .to_lowercase()
-                        .contains(&query.to_lowercase())
-                        .then_some(skin.1)
+                    match skin.1.name.to_lowercase().contains(&query.to_lowercase()) {
+                        true => Some(skin.1),
+                        false => None,
+                    }
                 })
             })
             .collect();

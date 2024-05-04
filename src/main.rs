@@ -15,23 +15,21 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    Tile(TileArgs),
+    #[command(subcommand)]
+    Tile(TileCommand),
+    #[command()]
     Preview { query: String },
 }
 
-#[derive(Debug, Args)]
-#[command(args_conflicts_with_subcommands = true)]
-#[command(flatten_help = true)]
-struct TileArgs {
-    #[command(subcommand)]
-    command: Option<TileCommands>,
-}
-
 #[derive(Debug, Subcommand)]
-enum TileCommands {
+enum TileCommand {
+    #[command()]
     Add { query: String },
+    #[command()]
     Remove,
+    #[command()]
     Build,
+    #[command()]
     List,
 }
 
@@ -42,17 +40,40 @@ fn main() -> anyhow::Result<()> {
         .map(|monitor| (monitor.width, monitor.height))
         .collect();
     let mut app = App::new(monitors);
-    let mut data = CDragon::new()?;
+    let mut cdragon = CDragon::new()?;
 
-    let query = "Blood Moon".to_string();
+    let cli = Cli::parse();
 
-    let skins = data.query(query).map(|skins| {
-        skins
-            .iter()
-            .map(|skin| skin.name.clone())
-            .collect::<Vec<String>>()
-    });
-    dbg!(&skins);
+    match cli.command {
+        Commands::Tile(tile) => match tile {
+            TileCommand::List => todo!(),
+            TileCommand::Build => todo!(),
+            TileCommand::Remove => todo!(),
+            TileCommand::Add { query } => {
+                let result_splashes = cdragon.query(query);
+                let displayed_items: Option<Vec<String>> = result_splashes.map_or(None, |skins| {
+                    Some(
+                        skins
+                            .into_iter()
+                            .map(|skin| skin.name.to_string())
+                            .collect(),
+                    )
+                });
+                match displayed_items {
+                    Some(skins) => {
+                        let selected_skins = MultiSelect::new()
+                            .with_prompt("Select some skins using [space] and complete the selection with [enter]. Pressing [enter] without selecting any skins will use them all!")
+                            .report(false)
+                            .items(&skins)
+                            .interact_opt()
+                            .unwrap();
+                    }
+                    None => println!("No skins found for that query!"),
+                }
+            }
+        },
+        Commands::Preview { query } => todo!(),
+    }
 
     Ok(())
 }
