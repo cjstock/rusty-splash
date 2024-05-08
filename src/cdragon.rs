@@ -1,12 +1,12 @@
-use anyhow::{anyhow, Context, Ok};
+use anyhow::{anyhow, Context, Error, Ok};
 use chrono::{DateTime, Utc};
 use core::panic;
-use rayon::iter::{IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator};
+use rayon::iter::{
+    IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::HashMap, fs, io, path::PathBuf, u32, u64};
-
-use crate::cache::Cached;
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct CDragon {
@@ -15,44 +15,38 @@ pub struct CDragon {
     pub plugins: Vec<Plugin>,
 }
 
-impl Cached for CDragon {
-    fn cache_name(&self) -> String {
-        String::from("cdragon")
-    }
-}
-
 impl CDragon {
-    pub fn new() -> anyhow::Result<Self> {
-        let mut cdragon = Self::default();
-        cdragon.load().unwrap_or_default();
-
+    pub fn up_to_date(current_update_timestamp: &DateTime<Utc>) -> anyhow::Result<()> {
         let plugins = Self::get_plugins()?;
 
-        let game_data_plugin = plugins
+        let found_newer_version = plugins
             .iter()
-            .find(|p| p.name == PluginName::RcpBeLolGameData);
-        if let Some(plug) = game_data_plugin {
-            let latest_date = plug.mtime;
-            if cdragon.latest_date.lt(&latest_date) {
-                print!("New version found! Updating...");
-                let mut champions = Self::get_champions()?;
-                champions.par_iter_mut().for_each(|champ| {
-                    champ.1.skins = Self::get_skins(*champ.0)
-                        .with_context(|| "failed to load skins")
-                        .unwrap();
-                });
-                cdragon = CDragon {
-                    champions,
-                    latest_date,
-                    plugins,
-                };
-                print!("Done!");
-                cdragon.save()?;
-            }
-        } else {
-            print!("Failed to check for latest CommunityDragon version!");
-        }
-        Ok(cdragon)
+            .find(|plugin| plugin.name == PluginName::RcpBeLolGameData)
+            .and_then(|it| match it.mtime.gt(current_update_timestamp) {
+                true => None,
+                false => Some(()),
+            });
+
+        found_newer_version.ok_or(anyhow!("update available"))
+    }
+
+    pub fn update(&mut self) -> anyhow::Result<()> {
+        let plugins = Self::get_plugins()?;
+        let champions = Self::get_champions()?;
+        let latest_date = plugins
+            .iter()
+            .find(|plugin| plugin.name == PluginName::RcpBeLolGameData)
+            .ok_or(anyhow!(
+                "couldn't find lol game data plugin in the available plugins"
+            ))?
+            .mtime;
+
+        *self = CDragon {
+            plugins,
+            champions,
+            latest_date,
+        };
+        Ok(())
     }
 
     fn fetch_plugins() -> String {
@@ -81,7 +75,7 @@ impl CDragon {
         let champions: anyhow::Result<HashMap<u64, Champion>> = data
             .as_array()
             .with_context(|| "failed to deserialize the champions into an array")?
-            .iter()
+            .par_iter()
             .skip(1)
             .map(|value| {
                 let id: u64 = value
@@ -99,13 +93,14 @@ impl CDragon {
                     .with_context(|| "failed to get alias for champion")?
                     .to_string()
                     .replace('\"', "");
+                let skins = Self::get_skins(id)?;
                 Ok((
                     id,
                     Champion {
                         id,
                         name,
                         alias,
-                        skins: HashMap::new(),
+                        skins,
                     },
                 ))
             })
@@ -130,7 +125,7 @@ impl CDragon {
             .with_context(|| "failed to get the skins for the champion")?
             .as_array()
             .with_context(|| "failed to convert skins objec to array")?
-            .iter()
+            .par_iter()
             .map(|value| {
                 let id: u64 = value
                     .get("id")
@@ -350,32 +345,40 @@ pub fn fetch(url: impl Into<String>) -> reqwest::Result<reqwest::blocking::Respo
 }
 
 #[cfg(test)]
-#[test]
-fn get_plugins() {
-    let plugins = CDragon::get_plugins();
-    dbg!(&plugins);
-    assert!(plugins.len() > 0)
-}
+mod test {
+    use chrono::{TimeZone, Utc};
 
-#[test]
-fn get_champions() {
-    let champions = CDragon::get_champions();
-    assert!(champions.len() > 0)
-}
+    use crate::cdragon::CDragon;
 
-#[test]
-fn populate_skins() {
-    let mut champions = CDragon::get_champions();
-    let annie = champions.get_mut(&1);
-    if let Some(annie) = annie {
-        annie.skins = CDragon::get_skins(annie.id);
-        dbg!(&annie);
-        assert!(annie.skins.len() > 0);
+    use super::PluginName;
+
+    #[test]
+    fn get_plugins() {
+        let plugins = CDragon::get_plugins();
+        dbg!(&plugins);
+        assert!(plugins.unwrap().len() > 0)
     }
-}
 
-#[test]
-fn save_cache() {
-    let data = CDragon::new();
-    assert!(data.champions.get(&1).is_some())
+    #[test]
+    fn get_champions() {
+        let champions = CDragon::get_champions();
+        assert!(champions.unwrap().len() > 0)
+    }
+
+    #[test]
+    fn out_of_date() {
+        let date = Utc.with_ymd_and_hms(2023, 12, 31, 12, 0, 0).unwrap();
+        assert!(CDragon::up_to_date(&date).is_err())
+    }
+
+    #[test]
+    fn already_up_to_date() {
+        let date = CDragon::get_plugins()
+            .unwrap()
+            .iter()
+            .find(|plugin| plugin.name == PluginName::RcpBeLolGameData)
+            .unwrap()
+            .mtime;
+        assert!(CDragon::up_to_date(&date).is_ok())
+    }
 }

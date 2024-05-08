@@ -4,54 +4,59 @@ use std::{collections::HashSet, fs, path::PathBuf};
 use dirs::home_dir;
 use serde::{Deserialize, Serialize};
 
-use crate::cache::Cached;
+use crate::{
+    cache::Cached,
+    cdragon::{self, CDragon},
+};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Default, Debug, Serialize, Deserialize)]
 pub struct App {
     pub download_path: PathBuf,
     pub downloaded: HashSet<u64>,
     pub tile_path: PathBuf,
     pub tiles: Vec<TileInstance>,
     pub monitors: Vec<(u32, u32)>,
-}
-
-impl Default for App {
-    fn default() -> Self {
-        let mut res = Self {
-            download_path: PathBuf::default(),
-            downloaded: HashSet::default(),
-            tiles: vec![],
-            tile_path: PathBuf::default(),
-            monitors: Vec::default(),
-        };
-        let _ = res.load();
-        res
-    }
+    pub cdragon: CDragon,
 }
 
 impl App {
     pub fn new(monitors: Vec<(u32, u32)>) -> Self {
         let mut app = App::default();
-        app.monitors = monitors;
-        app.download_path = home_dir().map_or(PathBuf::default(), |mut home| {
-            home.push("rusty-splash");
-            home.push("downloads");
-            if !home.exists() {
-                fs::create_dir_all(&home).unwrap();
+        match app.load() {
+            Ok(_) => match CDragon::up_to_date(&app.cdragon.latest_date) {
+                Ok(_) => app,
+                Err(_) => {
+                    println!("New version found! Updating...");
+                    let _ = app.cdragon.update().and_then(|_| app.save());
+                    return app;
+                }
+            },
+            Err(_) => {
+                app.monitors = monitors;
+                app.download_path = home_dir().map_or(PathBuf::default(), |mut home| {
+                    home.push("rusty-splash");
+                    home.push("downloads");
+                    if !home.exists() {
+                        fs::create_dir_all(&home).unwrap();
+                    }
+                    home
+                });
+                app.tile_path = home_dir().map_or(PathBuf::default(), |mut home| {
+                    home.push("rusty-splash");
+                    home.push("tiles");
+                    if !home.exists() {
+                        fs::create_dir_all(&home).unwrap();
+                    }
+                    home
+                });
+                app.downloads();
+                if let Err(_) = app.cdragon.update() {
+                    println!("Failed to read the cache, and couldn't fetch data from online! Please check your internet connection!")
+                }
+                let _ = app.save();
+                app
             }
-            home
-        });
-        app.tile_path = home_dir().map_or(PathBuf::default(), |mut home| {
-            home.push("rusty-splash");
-            home.push("tiles");
-            if !home.exists() {
-                fs::create_dir_all(&home).unwrap();
-            }
-            home
-        });
-        app.downloads();
-        let _ = app.save();
-        app
+        }
     }
     fn downloads(&mut self) {
         if self.download_path.try_exists().is_ok() {
@@ -101,4 +106,22 @@ pub struct TileInstance {
 
 impl TileInstance {
     pub fn build(&self) {}
+}
+
+#[cfg(test)]
+mod test {
+    use display_info::DisplayInfo;
+
+    use crate::app::App;
+
+    #[test]
+    fn load_app() {
+        let monitors = DisplayInfo::all()
+            .unwrap()
+            .iter()
+            .map(|monitor| (monitor.width, monitor.height))
+            .collect();
+        let app = App::new(monitors);
+        assert!(app.download_path.exists());
+    }
 }

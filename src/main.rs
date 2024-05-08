@@ -1,10 +1,8 @@
 use anyhow::{Context, Ok};
-use clap::{Args, Parser, Subcommand};
+use clap::{Parser, Subcommand};
 use dialoguer::MultiSelect;
 use display_info::DisplayInfo;
 use rusty_splash::app::App;
-use rusty_splash::cdragon::CDragon;
-use rusty_splash::tiled_splash::build_tile;
 
 #[derive(Parser, Debug)]
 #[command(author = "Corey Stock", about)]
@@ -40,7 +38,6 @@ fn main() -> anyhow::Result<()> {
         .map(|monitor| (monitor.width, monitor.height))
         .collect();
     let mut app = App::new(monitors);
-    let mut cdragon = CDragon::new()?;
 
     let cli = Cli::parse();
 
@@ -50,7 +47,7 @@ fn main() -> anyhow::Result<()> {
             TileCommand::Build => todo!(),
             TileCommand::Remove => todo!(),
             TileCommand::Add { query } => {
-                let result_splashes = cdragon.query(query);
+                let result_splashes = app.cdragon.query(query);
                 let displayed_items: Option<Vec<String>> = result_splashes.map_or(None, |skins| {
                     Some(
                         skins
