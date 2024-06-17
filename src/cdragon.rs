@@ -1,12 +1,12 @@
-use anyhow::{anyhow, Context, Error, Ok};
+use anyhow::{anyhow, Context};
 use chrono::{DateTime, Utc};
 use core::panic;
-use rayon::iter::{
-    IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
-};
+use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::HashMap, fs, io, path::PathBuf, u32, u64};
+
+use crate::cache::Cached;
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct CDragon {
@@ -15,7 +15,33 @@ pub struct CDragon {
     pub plugins: Vec<Plugin>,
 }
 
+impl Cached for CDragon {
+    fn cache_name() -> String {
+        String::from("cdragon")
+    }
+}
+
 impl CDragon {
+    pub fn new() -> anyhow::Result<Self> {
+        let mut cdragon = CDragon::default();
+        match cdragon.load() {
+            Ok(_) => match CDragon::up_to_date(&cdragon.latest_date) {
+                Ok(_) => Ok(cdragon),
+                Err(err) => {
+                    println!("{err}");
+                    cdragon.update()?;
+                    cdragon.save()?;
+                    Ok(cdragon)
+                }
+            },
+            Err(err) => {
+                println!("{err}");
+                cdragon.update()?;
+                cdragon.save()?;
+                Ok(cdragon)
+            }
+        }
+    }
     pub fn up_to_date(current_update_timestamp: &DateTime<Utc>) -> anyhow::Result<()> {
         let plugins = Self::get_plugins()?;
 
@@ -139,6 +165,10 @@ impl CDragon {
                     .clone()
                     .components()
                     .skip(3)
+                    .map(|component| {
+                        let thing = component.as_os_str();
+                        thing.to_ascii_lowercase()
+                    })
                     .collect();
                 Ok((id, skin))
             })
@@ -159,13 +189,33 @@ impl CDragon {
         })
     }
 
-    pub fn query(&self, query: impl Into<String>) -> anyhow::Result<Vec<&Skin>> {
-        let query: String = query.into();
+    pub fn all_skins(&self) -> anyhow::Result<Vec<&Skin>> {
         let result: Vec<&Skin> = self
             .champions
             .iter()
             .flat_map(|champ| {
-                champ.1.skins.iter().filter_map(|skin| {
+                champ
+                    .1
+                    .skins
+                    .iter()
+                    .map(|skin| skin.1)
+                    .collect::<Vec<&Skin>>()
+            })
+            .collect();
+        if result.is_empty() {
+            Err(anyhow!("no skins!"))
+        } else {
+            Ok(result)
+        }
+    }
+
+    pub fn query(&mut self, query: impl Into<String>) -> anyhow::Result<Vec<&Skin>> {
+        let query: String = query.into();
+        let result: Vec<&Skin> = self
+            .champions
+            .par_iter()
+            .flat_map(|champ| {
+                champ.1.skins.par_iter().filter_map(|skin| {
                     match skin.1.name.to_lowercase().contains(&query.to_lowercase()) {
                         true => Some(skin.1),
                         false => None,
@@ -194,6 +244,7 @@ impl CDragon {
             "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default",
         )
         .join(&skin.uncentered_splash_path);
+        dbg!(&url);
         let image = fetch(url.to_str().unwrap())
             .with_context(|| format!("error fetching skin {}", skin.id))?
             .bytes()

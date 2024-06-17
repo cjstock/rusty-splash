@@ -1,13 +1,11 @@
-use core::panic;
-use std::{collections::HashSet, fs, path::PathBuf};
+use std::{collections::HashSet, fs, path::PathBuf, u64};
 
+use anyhow::{anyhow, Context};
 use dirs::home_dir;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
-use crate::{
-    cache::Cached,
-    cdragon::{self, CDragon},
-};
+use crate::cache::Cached;
 
 #[derive(Default, Debug, Serialize, Deserialize)]
 pub struct App {
@@ -15,46 +13,36 @@ pub struct App {
     pub downloaded: HashSet<u64>,
     pub tile_path: PathBuf,
     pub tiles: Vec<TileInstance>,
+    pub selected_tile: Uuid,
     pub monitors: Vec<(u32, u32)>,
-    pub cdragon: CDragon,
 }
 
 impl App {
-    pub fn new(monitors: Vec<(u32, u32)>) -> Self {
+    pub fn new(monitors: Vec<(u32, u32)>) -> anyhow::Result<Self> {
         let mut app = App::default();
         match app.load() {
-            Ok(_) => match CDragon::up_to_date(&app.cdragon.latest_date) {
-                Ok(_) => app,
-                Err(_) => {
-                    println!("New version found! Updating...");
-                    let _ = app.cdragon.update().and_then(|_| app.save());
-                    return app;
-                }
-            },
+            Ok(_) => Ok(app),
             Err(_) => {
                 app.monitors = monitors;
-                app.download_path = home_dir().map_or(PathBuf::default(), |mut home| {
-                    home.push("rusty-splash");
-                    home.push("downloads");
-                    if !home.exists() {
-                        fs::create_dir_all(&home).unwrap();
-                    }
-                    home
-                });
-                app.tile_path = home_dir().map_or(PathBuf::default(), |mut home| {
-                    home.push("rusty-splash");
-                    home.push("tiles");
-                    if !home.exists() {
-                        fs::create_dir_all(&home).unwrap();
-                    }
-                    home
-                });
-                app.downloads();
-                if let Err(_) = app.cdragon.update() {
-                    println!("Failed to read the cache, and couldn't fetch data from online! Please check your internet connection!")
+                let mut home = home_dir().ok_or(anyhow!("couldn't get home dir"))?;
+                home.push("rusty-splash");
+                home.push("downloads");
+                if !home.exists() {
+                    fs::create_dir_all(&home)
+                        .with_context(|| anyhow!("failed to create missing downloads dir"))?;
                 }
-                let _ = app.save();
-                app
+                app.download_path = home.clone();
+
+                home.pop();
+                home.push("tiles");
+                if !home.exists() {
+                    fs::create_dir_all(&home)
+                        .with_context(|| anyhow!("failed to create missing downloads dir"))?;
+                }
+                app.tile_path = home;
+                app.downloads();
+                app.save()?;
+                Ok(app)
             }
         }
     }
@@ -89,23 +77,137 @@ impl App {
         self.downloads();
         let _ = self.save();
     }
-}
 
-impl Cached for App {
-    fn cache_name(&self) -> String {
-        "app".to_string()
+    pub fn tile_select(&mut self, tile_id: Uuid) -> anyhow::Result<()> {
+        match self.selected_tile == tile_id {
+            true => Ok(()),
+            false => match self.tiles.iter().any(|tile| tile.id == tile_id) {
+                true => {
+                    self.selected_tile = tile_id;
+                    self.save()?;
+                    Ok(())
+                }
+                false => Err(anyhow!("tile {} not found", tile_id)),
+            },
+        }
+    }
+
+    pub fn tile_new<S>(&mut self, name: S) -> anyhow::Result<Uuid>
+    where
+        S: Into<String>,
+    {
+        let new_tile = TileInstance::new(name);
+        let id = new_tile.id;
+        self.tiles.push(new_tile);
+        self.save()?;
+        Ok(id)
+    }
+
+    pub fn tile_update_name<S>(&mut self, id: Uuid, name: S) -> anyhow::Result<()>
+    where
+        S: Into<String>,
+    {
+        let tile = self.tiles.iter_mut().find(|tile| tile.id == id);
+        match tile {
+            Some(tile) => {
+                tile.name = name.into();
+                self.save()?;
+                Ok(())
+            }
+            None => Err(anyhow!(
+                "couldn't update the name of tile {:?}, because it doesn't exist",
+                id
+            )),
+        }
+    }
+
+    pub fn tile_delete(&mut self, id: Uuid) -> anyhow::Result<()> {
+        let index = self.tiles.iter().position(|tile| tile.id == id);
+        if let Some(index) = index {
+            self.tiles.remove(index);
+            if self.selected_tile == id {
+                self.selected_tile = Uuid::default();
+            }
+            self.save()?;
+            Ok(())
+        } else {
+            Err(anyhow!("tile {} not found!", id))
+        }
+    }
+
+    pub fn tile_add_splash(&mut self, id: &Uuid, splash_id: &u64) -> anyhow::Result<()> {
+        match self.tiles.iter_mut().find(|tile| tile.id == *id) {
+            Some(tile) => {
+                tile.splash_ids.insert(*splash_id);
+                self.save()?;
+                Ok(())
+            }
+            None => Err(anyhow!(
+                "couldn't add splashes to tile {:?}, because it doesn't exst",
+                id
+            )),
+        }
+    }
+
+    pub fn tile_remove_splashes(
+        &mut self,
+        id: Uuid,
+        splash_ids: &HashSet<u64>,
+    ) -> anyhow::Result<()> {
+        match self.tiles.iter_mut().find(|tile| tile.id == id) {
+            Some(tile) => {
+                tile.remove_splashes(splash_ids);
+                self.save()?;
+                return Ok(());
+            }
+            None => Err(anyhow!("no tile {:?} found", id)),
+        }
     }
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+impl Cached for App {
+    fn cache_name() -> String {
+        String::from("app")
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TileInstance {
-    name: String,
-    splash_ids: HashSet<u64>,
+    pub id: Uuid,
+    pub name: String,
+    pub splash_ids: HashSet<u64>,
     path: PathBuf,
 }
 
 impl TileInstance {
-    pub fn build(&self) {}
+    pub fn new<S>(name: S) -> Self
+    where
+        S: Into<String>,
+    {
+        Self {
+            name: name.into(),
+            id: Uuid::new_v4(),
+            ..Self::default()
+        }
+    }
+    pub fn add_splashes(&mut self, ids: &HashSet<u64>) {
+        ids.iter().for_each(|id| {
+            self.splash_ids.insert(*id);
+        });
+    }
+
+    pub fn remove_splashes(&mut self, ids: &HashSet<u64>) {
+        for id in ids {
+            let _ = self.splash_ids.remove(id);
+        }
+    }
+
+    pub fn set_name<S>(&mut self, new_name: S)
+    where
+        S: Into<String>,
+    {
+        self.name = new_name.into();
+    }
 }
 
 #[cfg(test)]
@@ -122,6 +224,28 @@ mod test {
             .map(|monitor| (monitor.width, monitor.height))
             .collect();
         let app = App::new(monitors);
-        assert!(app.download_path.exists());
+        assert!(app.is_ok());
+    }
+
+    #[test]
+    fn load_app_no_internet() {
+        let monitors = DisplayInfo::all()
+            .unwrap()
+            .iter()
+            .map(|monitor| (monitor.width, monitor.height))
+            .collect();
+        let app = App::new(monitors);
+        assert!(app.is_err())
+    }
+
+    #[test]
+    fn add_tile() {
+        let mut app = App::default();
+        assert!(app.tile_new(String::from("testy")).is_ok());
+        assert!(app
+            .tiles
+            .iter()
+            .find(|tile| tile.name == String::from("testy"))
+            .is_some());
     }
 }
